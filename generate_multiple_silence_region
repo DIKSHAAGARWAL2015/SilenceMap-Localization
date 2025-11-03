@@ -1,0 +1,169 @@
+clear all
+close all
+clc
+
+%% Add paths
+addpath('/MATLAB Drive/SilenceMap/MRI_prep_leadfield_ext')
+addpath('/MATLAB Drive/SilenceMap/SilenceMap')
+
+%% Parameters
+num_reps = 70;          % Number of simulations
+t = 10000;              % Number of time points
+k_total_max = 50;       % Max total sources to silence
+gamma = 0.12;           % Covariance decay coefficient
+Noise_pow = 0.5e-7;     % Max noise power
+Fs = 512;               % EEG sampling frequency
+
+%% Loop over repetitions
+for repp = 1:num_reps
+    fprintf('Simulation %d / %d\n', repp, num_reps);
+
+    %% Load high-res headmodel
+    load OT_leadfield_symmetric_1662-128.mat
+    load OT_headmodel_symmetric_1662-128.mat
+
+    cortex_high = Cortex.Pial;
+    sulc_high = Cortex.Sulc;
+    L_high = L;
+    source_loc_high = Cortex.Pial.vertices;
+
+    n_high = size(L_high,1);
+    p_high = size(L_high,2);
+
+    %% Generate random multiple regions of silence
+    rng('shuffle');
+    K = randi([1,5]);  % Random number of silent regions
+    silence_indices_all = [];
+
+    for k = 1:K
+        while true
+            idx_center = randperm(p_high,1);
+            dist_vec = sum((source_loc_high - source_loc_high(idx_center,:)).^2,2);
+            k_size = randi([5,15]); % Random size of this region
+
+            % Find available indices
+            idx_region = find(~ismember(1:p_high, silence_indices_all));
+            [~, I_dist] = sort(dist_vec(idx_region));
+            region_indices = idx_region(I_dist(1:min(k_size,length(I_dist))));
+
+            % Ensure disjoint regions
+            if isempty(intersect(silence_indices_all, region_indices))
+                silence_indices_all = [silence_indices_all; region_indices(:)];
+                break;
+            end
+        end
+    end
+
+    % Active source mask
+    X_act = ones(p_high,1);
+    X_act(silence_indices_all) = 0;
+
+    %% Plot Ground Truth
+    outputDir = sprintf('/MATLAB Drive/SilenceMap/SilenceMap/rep_%02d', repp);
+    if ~exist(outputDir,'dir'), mkdir(outputDir); end
+
+    fig = figure('Visible','off');
+    plot_source_space_signal_vF(1-X_act, sulc_high, cortex_high, cortex_high);
+    title('Red region = Actual region of silence','FontSize',16)
+    saveas(fig, fullfile(outputDir,'GroundTruth.png'));
+    close(fig);
+
+    %% Build block-structured covariance matrix
+    Cs = zeros(p_high);
+    for i = 1:p_high
+        for j = i:p_high
+            if X_act(i) && X_act(j)
+                Cs(i,j) = exp(-gamma*norm(source_loc_high(i,:)-source_loc_high(j,:))^2);
+            else
+                Cs(i,j) = 0; % silent sources
+            end
+        end
+    end
+    Cs = Cs + Cs' - diag(diag(Cs)); % Symmetrize
+
+    % Ensure positive semi-definite
+    [V,D] = eig(Cs);
+    D(D<0) = 0;
+    Cs = V*D*V';
+
+    %% Simulate sources and EEG
+    mu_s = zeros(p_high,1);
+    S = mvnrnd(mu_s, Cs, t)';
+
+    S_silence = S;
+    S_silence(~X_act,:) = 0; % Apply silence
+
+    E = mvnrnd(zeros(n_high,1), diag(Noise_pow*rand(n_high,1)), t)';
+    eeg = L_high*S_silence;
+
+    % Filter EEG
+    dd = designfilt('lowpassiir','FilterOrder',8,'PassbandFrequency',90,...
+        'PassbandRipple',0.2,'SampleRate',Fs);
+    eeg = filter(dd, eeg')';
+    eeg = eeg + E;
+
+    %% Low-resolution source grid
+    load OT_leadfield_symmetric_818-128.mat
+    load OT_headmodel_symmetric_818-128.mat
+
+    cortex_low = Cortex.Pial;
+    sulc_low = Cortex.Sulc;
+    L_low = L;
+    n_low = size(L_low,1);
+    p_low = size(L_low,2);
+
+    % Reference subtraction
+    i_ref = 10; % choose valid index
+    Y_low = eeg(1:n_low,:) - eeg(i_ref,:); % subtract reference
+    L_low_ref = L_low - L_low(i_ref,:);    % leadfield reference
+
+    %% Run localization algorithms on low-res
+    XMNE_initial = [];
+    XMUSIC_initial = [];
+    XLoreta_initial = [];
+    LV = 1;
+
+    [XMNE, XLORETA, XMUSIC, I_MNE, I_sLoreta, I_MUSIC] = ...
+        modified_src_loc(LV,L_low_ref,cortex_low.vertices,Y_low,XMNE_initial,XLoreta_initial,XMUSIC_initial);
+
+    % Create binary detection vectors
+    X_det_MUSIC = zeros(p_low,1); X_det_MUSIC(I_MUSIC) = 1;
+    X_det_MNE = zeros(p_low,1); X_det_MNE(I_MNE) = 1;
+    X_det_Loreta = zeros(p_low,1); X_det_Loreta(I_sLoreta) = 1;
+
+    % Save low-res figures
+    methods = {'MUSIC','MNE','LORETA'};
+    X_dets_low = {X_det_MUSIC, X_det_MNE, X_det_Loreta};
+    for m = 1:length(methods)
+        fig = figure('Visible','off');
+        plot_source_space_signal_vF(X_dets_low{m}, sulc_low, cortex_low, cortex_low);
+        saveas(fig, fullfile(outputDir,[methods{m},'_lowres.png']));
+        close(fig);
+    end
+
+    %% High-resolution localization
+    % Reference subtraction
+    Y_high = eeg - eeg(i_ref,:);        % subtract reference
+    L_high_ref = L_high - L_high(i_ref,:); % leadfield reference
+
+    LV = 0;
+    [XMNE, XLORETA, XMUSIC, I_MNE, I_sLoreta, I_MUSIC] = ...
+        modified_src_loc(LV,L_high_ref,cortex_high.vertices,Y_high,XMNE_initial,XLoreta_initial,XMUSIC_initial);
+
+    % Create binary detection vectors
+    X_det_MUSIC = zeros(p_high,1); X_det_MUSIC(I_MUSIC) = 1;
+    X_det_MNE = zeros(p_high,1); X_det_MNE(I_MNE) = 1;
+    X_det_Loreta = zeros(p_high,1); X_det_Loreta(I_sLoreta) = 1;
+
+    % Save high-res figures
+    X_dets_high = {X_det_MUSIC, X_det_MNE, X_det_Loreta};
+    for m = 1:length(methods)
+        fig = figure('Visible','off');
+        plot_source_space_signal_vF(X_dets_high{m}, sulc_high, cortex_high, cortex_high);
+        saveas(fig, fullfile(outputDir,[methods{m},'_highres.png']));
+        close(fig);
+    end
+
+end
+
+disp('Simulations complete!');
