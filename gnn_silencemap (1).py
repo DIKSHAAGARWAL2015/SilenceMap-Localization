@@ -10,6 +10,17 @@ from pathlib import Path
 from mpl_toolkits.mplot3d import Axes3D  # ensures 3D plotting works
 import numpy as np
 import mat73
+from tqdm import tqdm
+from sklearn.neighbors import NearestNeighbors
+#from scipy.signal import butter, filtfilt
+from scipy.signal import butter, filtfilt, welch
+from scipy.spatial.distance import cdist
+from scipy.sparse import coo_matrix, diags, identity
+from scipy.sparse.linalg import spsolve
+from scipy.io import loadmat
+import torch
+import torch.nn as nn
+import torch.optim as optim
 
 def _walk_py(obj, prefix=""):
     """Recursively walk Python objects (dicts/lists/arrays) from mat73."""
@@ -138,21 +149,10 @@ if _missing:
     print(">> In Colab, run: !pip -q install " + " ".join(_missing))
     sys.exit(1)
 
-from tqdm import tqdm
-from sklearn.neighbors import NearestNeighbors
-from scipy.signal import butter, filtfilt
-from scipy.spatial.distance import cdist
-from scipy.sparse import coo_matrix, diags, identity
-from scipy.sparse.linalg import spsolve
-from scipy.io import loadmat
-import torch
-import torch.nn as nn
-import torch.optim as optim
-
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 # ========================= Utilities =========================
-def fibonacci_sphere(samples=1000, radius=100.0):
+"""def fibonacci_sphere(samples=1000, radius=100.0):
     pts = []
     phi = math.pi * (3. - math.sqrt(5.))
     for i in range(samples):
@@ -172,7 +172,7 @@ def make_leadfield(sources_xyz, sensors_xyz, falloff=2.0):
     L = 1.0 / (d**falloff)
     L /= (np.linalg.norm(L, axis=1, keepdims=True) + 1e-12)
     return L.astype(np.float32)
-
+"""
 def knn_graph_gauss(coords, k=12, sigma=12.0):
     p = coords.shape[0]
     nn = NearestNeighbors(n_neighbors=min(k+1,p)).fit(coords)
@@ -241,6 +241,106 @@ def lap_energy(g, Lcoo):
     L_t = torch.sparse_coo_tensor(i, v, Lcoo.shape).coalesce()
     Lg = torch.sparse.mm(L_t, g)
     return (g * Lg).sum()
+    
+def compute_beta_silencemap(eeg, L, Fs):
+    """
+    Approximate SilenceMap-style beta:
+      - Welch PSD to estimate noise in 90–100 Hz band
+      - propagate noise to source space via L
+      - compute Var(mu_tilda) from projected signals
+      - normalize by Var_norm_fact = sum((L' L).^2, 2)
+
+    eeg: (n, t) array, observed EEG
+    L:   (n, p) leadfield
+    Fs:  sampling rate
+    """
+    eeg = np.asarray(eeg, dtype=np.float64)
+    L1  = np.asarray(L,   dtype=np.float64)
+    n, t = eeg.shape
+
+    # --- Welch parameters (match MATLAB logic) ---
+    w_length = int(min(math.floor(0.5 * t), 256))
+    w_over   = int(math.floor(0.5 * w_length))
+    if w_length < 8:  # safety
+        w_length = min(t, 64)
+        w_over   = w_length // 2
+
+    # =============== Noise PSD estimate (sensor space) ===============
+    # MATLAB: [pxx,f] = pwelch(Y',w_length,w_over,256,Fs);
+    # Here Y = eeg (no rereferencing)
+    f, pxx = welch(
+        eeg,
+        fs=Fs,
+        nperseg=w_length,
+        noverlap=w_over,
+        nfft=256,
+        axis=1
+    )  # pxx: (n, F)
+
+    # Average PSD between 90–100 Hz
+    band = (f >= 90.0) & (f <= 100.0)
+    if not np.any(band):
+        # fallback: use the highest frequencies if 90–100 not in grid
+        band = f >= f.max() * 0.8
+    eta = pxx[:, band].mean(axis=1)  # (n,)
+
+    # sigma_z_sqrd ~ eta * (100 - 0.1)  (matching MATLAB's 100-0.1)
+    sigma_z_sqrd = eta * (100.0 - 0.1)  # (n,)
+    # Cz is diag(sigma_z_sqrd) conceptually
+
+    # =============== Var_norm_fact from L' L ===============
+    LL = L1.T @ L1            # (p, p)
+    LL_sq = LL ** 2
+    Var_norm_fact = LL_sq.sum(axis=1) + 1e-12   # (p,)
+
+    # =============== Mu_tilda = L1' * eeg (projected sources) ===============
+    Mu_tilda = L1.T @ eeg     # (p, t)
+
+    # PSD of Mu_tilda (per source)
+    f_mu, pxx_mu = welch(
+        Mu_tilda,
+        fs=Fs,
+        nperseg=w_length,
+        noverlap=w_over,
+        nfft=256,
+        axis=1
+    )  # (p, F_mu)
+
+    if len(f_mu) > 1:
+        df_mu = f_mu[1] - f_mu[0]
+    else:
+        df_mu = 1.0
+
+    # Var(mu) = ∫ PSD df - mean^2
+    sigma_mu_sqrd = pxx_mu.sum(axis=1) * df_mu - (Mu_tilda.mean(axis=1) ** 2)
+    sigma_mu_sqrd = sigma_mu_sqrd.astype(np.float64)  # (p,)
+
+    # =============== Var(eeg) (not strictly needed for beta) ===============
+    if len(f) > 1:
+        df = f[1] - f[0]
+    else:
+        df = 1.0
+    sigma_eeg_sqrd = pxx.sum(axis=1) * df - (eeg.mean(axis=1) ** 2)
+    # P_M = sigma_eeg_sqrd - sigma_z_sqrd  # scalp power without noise (unused here)
+
+    # =============== Noise contribution in source space: diag(L1' Cz L1) ===============
+    # Cz = diag(sigma_z_sqrd). So Cz * L1 = sigma_z_sqrd[:,None] * L1
+    CzL1 = sigma_z_sqrd[:, None] * L1           # (n, p)
+    L1TCzL1 = L1.T @ CzL1                       # (p, p)
+    noise_src_var = np.diag(L1TCzL1)           # (p,)
+
+    sigma_mu_sqrd_wo_noise = sigma_mu_sqrd - noise_src_var
+    sigma_mu_sqrd_wo_noise = np.maximum(sigma_mu_sqrd_wo_noise, 0.0)
+
+    # =============== Beta as in SilenceMap: sigma_mu_wo_noise ./ Var_norm_fact ===============
+    beta = sigma_mu_sqrd_wo_noise / Var_norm_fact
+    beta = beta.astype(np.float32)
+
+    # Normalize to [0,1]
+    beta -= beta.min()
+    beta /= (beta.max() + 1e-12)
+
+    return beta
 
 # ========================= GNN =========================
 class BetaGNN(nn.Module):
@@ -265,7 +365,7 @@ class BetaGNN(nn.Module):
         g = torch.nn.functional.softplus(self.lin_out(H))        # ≥0
         g = (g - g.min()) / (g.max() - g.min() + 1e-8)           # normalize
         return g
-
+    
 # ========================= Main pipeline =========================
 def main():
     parser = argparse.ArgumentParser(description="SilenceMap + GNN (single file)")
@@ -317,11 +417,11 @@ def main():
         
 
 
-    if not args.use_mat:
+    """if not args.use_mat:
         p = args.p; n = args.n
         src_xyz = fibonacci_sphere(p, radius=90.0)
         elec_xyz = make_sensors(n, radius=100.0)
-        L = make_leadfield(src_xyz, elec_xyz, falloff=2.0)
+        L = make_leadfield(src_xyz, elec_xyz, falloff=2.0)"""
 
     # -------- Simulate multi-region silence + EEG --------
     rng = np.random.default_rng(42)
@@ -365,15 +465,115 @@ def main():
     eeg_nosil = butter_lowpass_filter(eeg_nosil, fs=Fs, cutoff=90.0, order=4)
     snr = np.mean(10*np.log10(np.var(eeg_nosil,axis=1)/(Noise_pow+1e-12)))
     print(f"Avg SNR ≈ {snr:.2f} dB")
-
-    # -------- Compute beta from EEG --------
-    Ceeg = (eeg @ eeg.T) / float(t)        # (n,n)
+    
+    ## -------- Compute beta from EEG --------
+    #Ceeg = (eeg @ eeg.T) / float(t)        # (n,n)
+    #AtA  = L.T @ Ceeg @ L                  # (p,p)
+    #beta = np.diag(AtA).astype(np.float32)
+    #beta -= beta.min()
+    #beta /= (beta.max() + 1e-12)
+    # -------- Compute beta from EEG (SilenceMap-style) --------
+    
+    #beta = compute_beta_silencemap(eeg, L, Fs)
+    ref_indices = [40,50,56,63,64,65,68,73,84,95]
+    ref_indices = [i - 1 for i in ref_indices]  # convert to 0-based
+    # -------- Compute beta from EEG (simulation) --------
+    '''Ceeg = (eeg @ eeg.T) / float(t)        # (n,n)
     AtA  = L.T @ Ceeg @ L                  # (p,p)
     beta = np.diag(AtA).astype(np.float32)
     beta -= beta.min()
-    beta /= (beta.max() + 1e-12)
+    beta /= (beta.max() + 1e-12)'''
 
-    # -------- Graph + Laplacian smoother baseline --------
+    '''beta = compute_beta_silencemap(eeg, L, Fs)
+    k_silent_gt = int(X_act.sum())
+    thr_beta = np.partition(beta, k_silent_gt-1)[k_silent_gt-1]  # exact k smallest
+    mask_beta = beta <= thr_beta
+
+    overlap = (mask_beta & X_act).sum()
+    print("\n[beta raw mask]")
+    print("  GT silent:", int(X_act.sum()),
+          "beta-silent:", int(mask_beta.sum()),
+          "overlap:", int(overlap))'''
+    #oracle beta
+    beta = np.ones(p, dtype=np.float32)
+    beta[X_act] = 0.0
+        # -------- Graph + Laplacian smoother baseline --------
+    kNN, sigmaW = args.kNN, args.sigmaW
+    W, deg = knn_graph_gauss(src_xyz, k=kNN, sigma=sigmaW)
+    L_g, _ = laplacian_from_W(W)
+    lam = args.lambda_lap
+    I = identity(src_xyz.shape[0], format='coo')
+    A = (I + lam * L_g).tocsc()
+    g_lap = spsolve(A, beta).astype(np.float32)
+    g_lap -= g_lap.min()
+    g_lap /= (g_lap.max() + 1e-12)
+
+    # number of truly silent nodes (ground truth)
+    k_silent = int(X_act.sum())          # or int(round(K * per_region_k))
+    q_silent = 100.0 * k_silent / p
+    print(f"[auto] q_silent set to {q_silent:.2f}% for |S|={k_silent}/{p}")
+
+    # ---- Laplacian mask: choose k_silent *smallest* g_lap values as silent ----
+    g_lap_arr = np.asarray(g_lap)
+    idx_lap = np.argpartition(g_lap_arr, k_silent-1)[:k_silent]  # indices of k smallest
+    mask_lap = np.zeros_like(g_lap_arr, dtype=bool)
+    mask_lap[idx_lap] = True
+
+    P, R, F1 = pr_re_f1(mask_lap, X_act)
+    print(f"Laplacian: P={P:.3f} R={R:.3f} F1={F1:.3f}")
+
+    # -------- GNN (self-supervised on single beta) --------
+    Ahat = build_torch_graph(W, deg)
+    Lcoo = L_g.tocoo()
+
+    # seeds: also pick the k_silent smallest beta values as "most silent-looking"
+    beta_arr = np.asarray(beta)
+    idx_seed = np.argpartition(beta_arr, k_silent-1)[:k_silent]
+    seed_mask = torch.zeros(beta_arr.shape[0], dtype=torch.bool, device=device)
+    seed_mask[idx_seed] = True
+
+    hidden   = args.gnn_hidden
+    steps    = args.gnn_steps
+    lr       = args.gnn_lr
+    lam_gnn  = args.gnn_lambda
+    gamma_gnn = args.gnn_gamma
+
+    model = BetaGNN(p=src_xyz.shape[0], hidden=hidden, Ahat=Ahat).to(device)
+    opt = optim.Adam(model.parameters(), lr=lr)
+
+    beta_t   = torch.tensor(beta, dtype=torch.float32, device=device).view(-1, 1)
+    deg_feat = torch.tensor(deg,  dtype=torch.float32, device=device).view(-1, 1)
+
+    for it in range(steps):
+        opt.zero_grad()
+        g = model(beta_t, deg_feat)          # (p,1)
+
+        data_term   = ((g - beta_t)**2).mean()
+        smooth_term = lap_energy(g, Lcoo) / src_xyz.shape[0]
+        seed_term   = g[seed_mask].mean()
+        loss = data_term + lam_gnn * smooth_term + gamma_gnn * seed_term
+
+        loss.backward()
+        opt.step()
+        if (it+1) % 200 == 0:
+            print(f"[{it+1:04d}] loss={loss.item():.5f} "
+                  f"data={data_term.item():.5f} "
+                  f"smooth={smooth_term.item():.5f} "
+                  f"seed={seed_term.item():.5f}")
+
+    with torch.no_grad():
+        g_hat = model(beta_t, deg_feat).squeeze(1).detach().cpu().numpy()
+
+    # ---- GNN mask: choose k_silent *smallest* g_hat values as silent ----
+    g_hat_arr = np.asarray(g_hat)
+    idx_gnn = np.argpartition(g_hat_arr, k_silent-1)[:k_silent]
+    mask_gnn = np.zeros_like(g_hat_arr, dtype=bool)
+    mask_gnn[idx_gnn] = True
+
+    P, R, F1 = pr_re_f1(mask_gnn, X_act)
+    print(f"GNN:       P={P:.3f} R={R:.3f} F1={F1:.3f}")
+
+    '''# -------- Graph + Laplacian smoother baseline --------
     kNN, sigmaW = args.kNN, args.sigmaW
     W, deg = knn_graph_gauss(src_xyz, k=kNN, sigma=sigmaW)
     L_g, _ = laplacian_from_W(W)
@@ -389,7 +589,7 @@ def main():
 
     #q_silent = args.q_silent
     thr = np.percentile(g_lap, q_silent)
-    mask_lap = g_lap <= thr
+    mask_lap = g_lap >= thr
     P,R,F1 = pr_re_f1(mask_lap, X_act)
     print(f"Laplacian: P={P:.3f} R={R:.3f} F1={F1:.3f}")
 
@@ -427,9 +627,25 @@ def main():
     with torch.no_grad():
         g_hat = model(beta_t, deg_feat).squeeze(1).detach().cpu().numpy()
     thr_g = np.percentile(g_hat, q_silent)
-    mask_gnn = g_hat <= thr_g
+    mask_gnn = g_hat >= thr_g
     P,R,F1 = pr_re_f1(mask_gnn, X_act)
-    print(f"GNN:       P={P:.3f} R={R:.3f} F1={F1:.3f}")
+    print(f"GNN:       P={P:.3f} R={R:.3f} F1={F1:.3f}")'''
+
+        # ---- DEBUG: how aligned are beta, g_lap, g_gnn with true silence? ----
+    silent = X_act.astype(bool)
+    active = ~silent
+
+    def stats(name, arr):
+        arr = np.asarray(arr)
+        print(f"\n[{name}]")
+        print("  mean(silent) :", float(arr[silent].mean()))
+        print("  mean(active) :", float(arr[active].mean()))
+        print("  corr with X_act:",
+              float(np.corrcoef(arr, X_act.astype(np.float32))[0,1]))
+
+    stats("beta",  beta)
+    stats("g_lap", g_lap)
+    stats("g_gnn", g_hat)
 
     # -------- Plots --------
     save = args.save_figs
