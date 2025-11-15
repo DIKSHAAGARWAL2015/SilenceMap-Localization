@@ -152,27 +152,6 @@ if _missing:
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 # ========================= Utilities =========================
-"""def fibonacci_sphere(samples=1000, radius=100.0):
-    pts = []
-    phi = math.pi * (3. - math.sqrt(5.))
-    for i in range(samples):
-        y = 1 - (i / float(max(samples - 1,1))) * 2
-        r = math.sqrt(max(1 - y*y, 0))
-        theta = phi * i
-        x = math.cos(theta) * r
-        z = math.sin(theta) * r
-        pts.append([radius*x, radius*y, radius*z])
-    return np.array(pts, dtype=np.float32)
-
-def make_sensors(n=128, radius=110.0):
-    return fibonacci_sphere(n, radius=radius)
-
-def make_leadfield(sources_xyz, sensors_xyz, falloff=2.0):
-    d = cdist(sensors_xyz, sources_xyz) + 1e-3
-    L = 1.0 / (d**falloff)
-    L /= (np.linalg.norm(L, axis=1, keepdims=True) + 1e-12)
-    return L.astype(np.float32)
-"""
 def knn_graph_gauss(coords, k=12, sigma=12.0):
     p = coords.shape[0]
     nn = NearestNeighbors(n_neighbors=min(k+1,p)).fit(coords)
@@ -413,16 +392,7 @@ def main():
         print("Failed to parse .mat structures:", e)
         print("Falling back to synthetic.")
         args.use_mat = False
-
         
-
-
-    """if not args.use_mat:
-        p = args.p; n = args.n
-        src_xyz = fibonacci_sphere(p, radius=90.0)
-        elec_xyz = make_sensors(n, radius=100.0)
-        L = make_leadfield(src_xyz, elec_xyz, falloff=2.0)"""
-
     # -------- Simulate multi-region silence + EEG --------
     rng = np.random.default_rng(42)
     K, per_region_k = args.K, args.per_region_k
@@ -478,12 +448,6 @@ def main():
     ref_indices = [40,50,56,63,64,65,68,73,84,95]
     ref_indices = [i - 1 for i in ref_indices]  # convert to 0-based
     # -------- Compute beta from EEG (simulation) --------
-    '''Ceeg = (eeg @ eeg.T) / float(t)        # (n,n)
-    AtA  = L.T @ Ceeg @ L                  # (p,p)
-    beta = np.diag(AtA).astype(np.float32)
-    beta -= beta.min()
-    beta /= (beta.max() + 1e-12)'''
-
     '''beta = compute_beta_silencemap(eeg, L, Fs)
     k_silent_gt = int(X_act.sum())
     thr_beta = np.partition(beta, k_silent_gt-1)[k_silent_gt-1]  # exact k smallest
@@ -494,7 +458,6 @@ def main():
     print("  GT silent:", int(X_act.sum()),
           "beta-silent:", int(mask_beta.sum()),
           "overlap:", int(overlap))'''
-    #oracle beta
     beta = np.ones(p, dtype=np.float32)
     beta[X_act] = 0.0
         # -------- Graph + Laplacian smoother baseline --------
@@ -572,65 +535,6 @@ def main():
 
     P, R, F1 = pr_re_f1(mask_gnn, X_act)
     print(f"GNN:       P={P:.3f} R={R:.3f} F1={F1:.3f}")
-
-    '''# -------- Graph + Laplacian smoother baseline --------
-    kNN, sigmaW = args.kNN, args.sigmaW
-    W, deg = knn_graph_gauss(src_xyz, k=kNN, sigma=sigmaW)
-    L_g, _ = laplacian_from_W(W)
-    lam = args.lambda_lap
-    I = identity(src_xyz.shape[0], format='coo')
-    A = (I + lam * L_g).tocsc()
-    g_lap = spsolve(A, beta).astype(np.float32)
-    g_lap -= g_lap.min(); g_lap /= (g_lap.max() + 1e-12)
-    # auto q from GT size
-    k_silent = int(round(K * per_region_k))
-    q_silent = 100.0 * k_silent / p
-    print(f"[auto] q_silent set to {q_silent:.2f}% for |S|={k_silent}/{p}")
-
-    #q_silent = args.q_silent
-    thr = np.percentile(g_lap, q_silent)
-    mask_lap = g_lap >= thr
-    P,R,F1 = pr_re_f1(mask_lap, X_act)
-    print(f"Laplacian: P={P:.3f} R={R:.3f} F1={F1:.3f}")
-
-    # -------- GNN (self-supervised on single beta) --------
-    Ahat = build_torch_graph(W, deg)
-    Lcoo = L_g.tocoo()
-
-    seed_thr = np.percentile(beta, q_silent)
-    seed_mask = torch.tensor(beta <= seed_thr, device=device)
-
-    hidden = args.gnn_hidden
-    steps  = args.gnn_steps
-    lr     = args.gnn_lr
-    lam_gnn = args.gnn_lambda
-    gamma_gnn = args.gnn_gamma
-
-    model = BetaGNN(p=src_xyz.shape[0], hidden=hidden, Ahat=Ahat).to(device)
-    opt = optim.Adam(model.parameters(), lr=lr)
-
-    beta_t = torch.tensor(beta, dtype=torch.float32, device=device).view(-1,1)
-    deg_feat = torch.tensor(deg, dtype=torch.float32, device=device).view(-1,1)
-
-    for it in range(steps):
-        opt.zero_grad()
-        g = model(beta_t, deg_feat)          # (p,1)
-        data_term = ((g - beta_t)**2).mean()
-        smooth_term = lap_energy(g, Lcoo) / src_xyz.shape[0]
-        seed_term = g[seed_mask].mean()
-        loss = data_term + lam_gnn*smooth_term + gamma_gnn*seed_term
-        loss.backward()
-        opt.step()
-        if (it+1) % 200 == 0:
-            print(f"[{it+1:04d}] loss={loss.item():.5f} data={data_term.item():.5f} smooth={smooth_term.item():.5f} seed={seed_term.item():.5f}")
-
-    with torch.no_grad():
-        g_hat = model(beta_t, deg_feat).squeeze(1).detach().cpu().numpy()
-    thr_g = np.percentile(g_hat, q_silent)
-    mask_gnn = g_hat >= thr_g
-    P,R,F1 = pr_re_f1(mask_gnn, X_act)
-    print(f"GNN:       P={P:.3f} R={R:.3f} F1={F1:.3f}")'''
-
         # ---- DEBUG: how aligned are beta, g_lap, g_gnn with true silence? ----
     silent = X_act.astype(bool)
     active = ~silent
