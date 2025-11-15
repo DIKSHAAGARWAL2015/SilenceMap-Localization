@@ -221,32 +221,32 @@ def lap_energy(g, Lcoo):
     Lg = torch.sparse.mm(L_t, g)
     return (g * Lg).sum()
     
+import numpy as np
+import math
+from scipy.signal import welch
+
 def compute_beta_silencemap(eeg, L, Fs):
     """
-    Approximate SilenceMap-style beta:
-      - Welch PSD to estimate noise in 90–100 Hz band
-      - propagate noise to source space via L
-      - compute Var(mu_tilda) from projected signals
-      - normalize by Var_norm_fact = sum((L' L).^2, 2)
-
-    eeg: (n, t) array, observed EEG
-    L:   (n, p) leadfield
-    Fs:  sampling rate
+    EEG-based approximate SilenceMap beta (realistic, noisy):
+      - Welch PSD to estimate sensor noise in a high-frequency band
+      - Project EEG into source space: Mu_tilda = L^T * eeg
+      - Remove estimated noise contribution
+      - Normalize by Var_norm_fact = sum((L^T L)^2, 2)
+      - Return beta in [0, 1]
     """
-    eeg = np.asarray(eeg, dtype=np.float64)
-    L1  = np.asarray(L,   dtype=np.float64)
+    eeg = np.asarray(eeg, dtype=np.float64)  # (n, t)
+    L1  = np.asarray(L,   dtype=np.float64)  # (n, p)
     n, t = eeg.shape
 
-    # --- Welch parameters (match MATLAB logic) ---
+    # ---------- Welch parameters ----------
     w_length = int(min(math.floor(0.5 * t), 256))
     w_over   = int(math.floor(0.5 * w_length))
-    if w_length < 8:  # safety
+    if w_length < 8:
         w_length = min(t, 64)
         w_over   = w_length // 2
 
-    # =============== Noise PSD estimate (sensor space) ===============
-    # MATLAB: [pxx,f] = pwelch(Y',w_length,w_over,256,Fs);
-    # Here Y = eeg (no rereferencing)
+    # ---------- Noise PSD estimate (sensor space) ----------
+    # pwelch(Y',...) in MATLAB with Y: (n x t) → we use axis=1 (time axis)
     f, pxx = welch(
         eeg,
         fs=Fs,
@@ -254,28 +254,27 @@ def compute_beta_silencemap(eeg, L, Fs):
         noverlap=w_over,
         nfft=256,
         axis=1
-    )  # pxx: (n, F)
+    )   # pxx: (n, F)
 
-    # Average PSD between 90–100 Hz
+    # High-frequency band for noise (approx 90–100 Hz)
     band = (f >= 90.0) & (f <= 100.0)
     if not np.any(band):
-        # fallback: use the highest frequencies if 90–100 not in grid
+        # fallback: top 20% of available freqs, more generic
         band = f >= f.max() * 0.8
     eta = pxx[:, band].mean(axis=1)  # (n,)
 
-    # sigma_z_sqrd ~ eta * (100 - 0.1)  (matching MATLAB's 100-0.1)
-    sigma_z_sqrd = eta * (100.0 - 0.1)  # (n,)
-    # Cz is diag(sigma_z_sqrd) conceptually
+    # Rough scaling; matches MATLAB's (100 - 0.1) but we add a guard
+    bandwidth = max(f[band].max() - f[band].min(), 1.0)
+    sigma_z_sqrd = eta * bandwidth   # (n,)
 
-    # =============== Var_norm_fact from L' L ===============
-    LL = L1.T @ L1            # (p, p)
+    # ---------- Var_norm_fact from (L^T L)^2 ----------
+    LL = L1.T @ L1             # (p, p)
     LL_sq = LL ** 2
-    Var_norm_fact = LL_sq.sum(axis=1) + 1e-12   # (p,)
+    Var_norm_fact = LL_sq.sum(axis=1) + 1e-12  # (p,)
 
-    # =============== Mu_tilda = L1' * eeg (projected sources) ===============
-    Mu_tilda = L1.T @ eeg     # (p, t)
+    # ---------- Project EEG to source space ----------
+    Mu_tilda = L1.T @ eeg      # (p, t)
 
-    # PSD of Mu_tilda (per source)
     f_mu, pxx_mu = welch(
         Mu_tilda,
         fs=Fs,
@@ -283,7 +282,7 @@ def compute_beta_silencemap(eeg, L, Fs):
         noverlap=w_over,
         nfft=256,
         axis=1
-    )  # (p, F_mu)
+    )   # pxx_mu: (p, F_mu)
 
     if len(f_mu) > 1:
         df_mu = f_mu[1] - f_mu[0]
@@ -294,32 +293,32 @@ def compute_beta_silencemap(eeg, L, Fs):
     sigma_mu_sqrd = pxx_mu.sum(axis=1) * df_mu - (Mu_tilda.mean(axis=1) ** 2)
     sigma_mu_sqrd = sigma_mu_sqrd.astype(np.float64)  # (p,)
 
-    # =============== Var(eeg) (not strictly needed for beta) ===============
-    if len(f) > 1:
-        df = f[1] - f[0]
-    else:
-        df = 1.0
-    sigma_eeg_sqrd = pxx.sum(axis=1) * df - (eeg.mean(axis=1) ** 2)
-    # P_M = sigma_eeg_sqrd - sigma_z_sqrd  # scalp power without noise (unused here)
+    # ---------- Noise contribution in source space: diag(L^T C_z L) ----------
+    # C_z = diag(sigma_z_sqrd)
+    # diag(L^T C_z L)_i = sum_n sigma_z_sqrd[n] * L1[n, i]^2
+    noise_src_var = (L1**2 * sigma_z_sqrd[:, None]).sum(axis=0)  # (p,)
 
-    # =============== Noise contribution in source space: diag(L1' Cz L1) ===============
-    # Cz = diag(sigma_z_sqrd). So Cz * L1 = sigma_z_sqrd[:,None] * L1
-    CzL1 = sigma_z_sqrd[:, None] * L1           # (n, p)
-    L1TCzL1 = L1.T @ CzL1                       # (p, p)
-    noise_src_var = np.diag(L1TCzL1)           # (p,)
-
+    # Remove noise and clip
     sigma_mu_sqrd_wo_noise = sigma_mu_sqrd - noise_src_var
     sigma_mu_sqrd_wo_noise = np.maximum(sigma_mu_sqrd_wo_noise, 0.0)
 
-    # =============== Beta as in SilenceMap: sigma_mu_wo_noise ./ Var_norm_fact ===============
+    # ---------- Beta = sigma_mu_wo_noise ./ Var_norm_fact ----------
     beta = sigma_mu_sqrd_wo_noise / Var_norm_fact
     beta = beta.astype(np.float32)
 
-    # Normalize to [0,1]
-    beta -= beta.min()
-    beta /= (beta.max() + 1e-12)
+    # Remove NaNs / Infs
+    beta[~np.isfinite(beta)] = 0.0
 
-    return beta
+    # Normalize to [0,1] with guard
+    bmin, bmax = beta.min(), beta.max()
+    if bmax > bmin:
+        beta = (beta - bmin) / (bmax - bmin)
+    else:
+        # pathological case: all equal → set everything to 0
+        beta = np.zeros_like(beta, dtype=np.float32)
+
+    return beta  # shape: (p,)
+
 
 # ========================= GNN =========================
 class BetaGNN(nn.Module):
@@ -444,7 +443,15 @@ def main():
     #beta /= (beta.max() + 1e-12)
     # -------- Compute beta from EEG (SilenceMap-style) --------
     
-    #beta = compute_beta_silencemap(eeg, L, Fs)
+    beta = compute_beta_silencemap(eeg, L, Fs)
+    print(beta.shape, beta.min(), beta.max())
+    print("mean beta:", beta.mean())
+    print("fraction > 0.5:", (beta > 0.5).mean())
+    import matplotlib.pyplot as plt
+    plt.hist(beta, bins=50)
+    plt.title("Realistic beta distribution")
+    plt.show()
+
     ref_indices = [40,50,56,63,64,65,68,73,84,95]
     ref_indices = [i - 1 for i in ref_indices]  # convert to 0-based
     # -------- Compute beta from EEG (simulation) --------
