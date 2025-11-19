@@ -43,7 +43,7 @@ plotting.py           → Produces all visualizations: cortex masks, GNN cluster
 requirements.txt      → Lists Python dependencies
 
 __init__.py           → Marks the repository as a Python package
-
+''
 figs/                 → (Optional) Stores generated figures from the pipeline
 
 ---
@@ -54,3 +54,8 @@ Install dependencies (in a fresh environment):
 
 ```bash
 pip install -r requirements.txt
+```cli
+!python /content/SilenceMap-Localization/SilenceMap-Localization/main.py --save_figs --use_mat \
+  --leadfield_path /content/sample_data/OT_leadfield_symmetric_1662-128.mat \
+  --headmodel_path /content/sample_data/OT_headmodel_symmetric_1662-128.mat
+Make sure leadfield and cortex are present
