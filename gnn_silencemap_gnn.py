@@ -24,6 +24,9 @@ import torch.optim as optim
 import numpy as np
 import math
 from scipy.signal import welch
+from itertools import combinations
+from scipy.sparse.csgraph import connected_components
+
 
 def _walk_py(obj, prefix=""):
     """Recursively walk Python objects (dicts/lists/arrays) from mat73."""
@@ -121,11 +124,7 @@ def load_leadfield_any(leadfield_path, headmodel_path, leadfield_var=None, verti
 
     return L.astype(np.float32), src_xyz.astype(np.float32)
 
-
 def show_or_save(fig, name, save=False, outdir="/content/sample_data/figs/"):
-    """
-    Saves or displays the matplotlib figure.
-    """
     Path(outdir).mkdir(parents=True, exist_ok=True)
     if save:
         path = os.path.join(outdir, name)
@@ -153,6 +152,135 @@ if _missing:
     sys.exit(1)
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+def extract_clusters_from_mask_sparse(mask, W):
+    """
+    Given:
+        mask : boolean array of shape (p,)
+            True for nodes selected by GNN (e.g. mask_gnn).
+        W : (p,p) sparse adjacency (same W you built from knn_graph_gauss).
+
+    Returns:
+        clusters : list of lists
+            Each inner list is a list of original node indices in that cluster.
+    """
+    mask = np.asarray(mask, dtype=bool)
+    idx = np.where(mask)[0]        # original node indices that are True
+
+    if idx.size == 0:
+        return []
+
+    # coo_matrix is not subscriptable → convert to CSR first
+    W_csr = W.tocsr()
+
+    # Induced subgraph on masked nodes
+    W_sub = W_csr[mask][:, mask]
+
+    # Connected components on this subgraph
+    n_comp, labels = connected_components(csgraph=W_sub,
+                                          directed=False,
+                                          connection='weak')
+    clusters = []
+    for c in range(n_comp):
+        members = idx[labels == c]
+        if members.size > 0:
+            clusters.append(members.tolist())
+    return clusters
+
+
+def rank_clusters(clusters, coords):
+    """
+    clusters : list of lists of node indices
+    coords   : (p,3) array of xyz coordinates (here: src_xyz)
+
+    Returns:
+        ranked list of dicts with size, mean distance, score, etc.
+    """
+    cluster_info = []
+
+    for c_id, cluster in enumerate(clusters):
+        nodes = np.array(cluster, dtype=int)
+        points = coords[nodes]           # (k,3)
+        size = len(nodes)
+
+        if size > 1:
+            # pairwise distances inside cluster
+            dists = []
+            for i, j in combinations(range(size), 2):
+                dists.append(np.linalg.norm(points[i] - points[j]))
+            mean_dist = float(np.mean(dists))
+            max_dist  = float(np.max(dists))
+        else:
+            mean_dist = 0.0
+            max_dist  = 0.0
+
+        # Bigger & tighter cluster → higher score (you can change formula)
+        score = size - mean_dist
+
+        cluster_info.append({
+            "cluster_id": c_id,
+            "nodes": nodes.tolist(),
+            "size": size,
+            "mean_internal_distance": mean_dist,
+            "max_internal_distance": max_dist,
+            "score": score,
+        })
+
+    ranked = sorted(cluster_info, key=lambda x: x["score"], reverse=True)
+    return ranked
+def plot_ranked_clusters_numbered_with_mask(coords, mask, ranked_node_groups,
+                                            title="Ranked clusters (1 = best)",
+                                            save=False, outdir="/content/",
+                                            fname="gnn_ranked_clusters.png"):
+    """
+    Separate figure:
+      - background nodes: soft blue
+      - detected silent nodes (mask=True): red
+      - cluster numbers = rank IDs (1,2,3,...) drawn at centroids
+    """
+    import matplotlib.pyplot as plt
+    import numpy as np
+    import os
+
+    coords = np.asarray(coords)
+    mask   = np.asarray(mask, dtype=bool)
+
+    fig = plt.figure(figsize=(7,6))
+    ax = fig.add_subplot(111, projection='3d')
+
+    # ---- Background: soft blue ----
+    ax.scatter(coords[:,0], coords[:,1], coords[:,2],
+               c="#b0c4ff", s=8, edgecolors='none', alpha=0.4)
+
+    # ---- Silent nodes: red ----
+    silent_idx = np.where(mask)[0]
+    ax.scatter(coords[silent_idx,0], coords[silent_idx,1], coords[silent_idx,2],
+               c="#ff4444", s=18, edgecolors='none', alpha=0.9)
+
+    # ---- Rank numbers at cluster centroids ----
+    for rank_id, nodes in ranked_node_groups:
+        nodes_arr = np.array(nodes, dtype=int)
+        centroid = coords[nodes_arr].mean(axis=0)
+        ax.text(
+            centroid[0], centroid[1], centroid[2],
+            str(rank_id),                # RANK number
+            color="black",
+            fontsize=12,
+            ha='center', va='center',
+            weight='bold'
+        )
+
+    ax.view_init(elev=20, azim=40)
+    ax.set_title(title)
+    ax.set_axis_off()
+
+    if save:
+        os.makedirs(outdir, exist_ok=True)
+        path = os.path.join(outdir, fname)
+        fig.savefig(path, dpi=200, bbox_inches="tight")
+        plt.close(fig)
+        print(f"[saved → {path}]")
+    else:
+        plt.show()
 
 # ========================= Utilities =========================
 def knn_graph_gauss(coords, k=12, sigma=12.0):
@@ -347,15 +475,13 @@ def main():
     beta_eeg = beta_eeg.astype(np.float64)
     beta_oracle = np.ones(p, dtype=np.float32)
     beta_oracle[X_act] = 0.0
-    alpha = 0.5  # 1.0 = pure oracle, 0.0 = pure EEG
+    alpha = 0.0  # 1.0 = pure oracle, 0.0 = pure EEG
     beta = (1 - alpha) * beta_eeg + alpha * beta_oracle
     beta -= beta.min()
     beta /= (beta.max() + 1e-12)"""
-    # -------- Compute beta from EEG (SilenceMap-style) --------
-    #ref_indices = [40,50,56,63,64,65,68,73,84,95]
-    #ref_indices = [i - 1 for i in ref_indices]  # convert to 0-based
+    
     #binary beta
-    mat = loadmat('/content/sample_data/silencemap_beta.mat')   # adjust path if needed
+    """mat = loadmat('/content/sample_data/silencemap_beta.mat')   # adjust path if needed
 
     beta_mat = mat['Betta'].squeeze()      # (p,) or (p,1) → (p,)
     #X_act_mat = mat['X_act'].squeeze()     # optional, but nice to compare
@@ -382,9 +508,9 @@ def main():
     #print("mean(beta silent):", float(beta[X_act_mat == 1].mean()))
     #print("mean(beta active):", float(beta[X_act_mat == 0].mean()))
     #print("corr with X_act:", float(np.corrcoef(beta, X_act_mat.astype(float))[0,1]))
-
-    """beta = np.ones(p, dtype=np.float32)
-    beta[X_act] = 0.0"""
+    """
+    beta = np.ones(p, dtype=np.float32)
+    beta[X_act] = 0.0
         # -------- Graph + Laplacian smoother baseline --------
     kNN, sigmaW = args.kNN, args.sigmaW
     W, deg = knn_graph_gauss(src_xyz, k=kNN, sigma=sigmaW)
@@ -486,6 +612,27 @@ def main():
 
     P, R, F1 = pr_re_f1(mask_gnn, X_act)
     print(f"GNN:       P={P:.3f} R={R:.3f} F1={F1:.3f}")
+        # -------- Cluster extraction + ranking from GNN mask --------
+    clusters = extract_clusters_from_mask_sparse(mask_gnn, W)
+    print(f"Found {len(clusters)} GNN clusters among silent nodes.")
+
+    ranked_clusters = rank_clusters(clusters, src_xyz)
+    # Build a mapping: cluster_nodes → ranked cluster ID
+    ranked_node_groups = []        # list of (rank_id, nodes)
+    for rank_id, info in enumerate(ranked_clusters, start=1):
+         nodes = info["nodes"]       # already a list of node indices
+         ranked_node_groups.append((rank_id, nodes))
+
+    # Print top few clusters
+    print("\nTop clusters (by size & compactness):")
+    for c in ranked_clusters[:5]:
+        print(
+            f"  Cluster {c['cluster_id']}: "
+            f"size={c['size']}, "
+            f"mean_dist={c['mean_internal_distance']:.3f}, "
+            f"score={c['score']:.3f}"
+        )
+
         # ---- DEBUG: how aligned are beta, g_lap, g_gnn with true silence? ----
     silent = X_act.astype(bool)
     active = ~silent
@@ -510,7 +657,14 @@ def main():
     show_cortex_mask(src_xyz, X_act,    title=f"GT silent (K={K})",             save=save, outdir=out, fname="1_gt.png")
     show_cortex_mask(src_xyz, mask_lap, title=f"Laplacian mask (q=%s%%)" % q_silent, save=save, outdir=out, fname="2_laplacian.png")
     show_cortex_mask(src_xyz, mask_gnn, title=f"GNN mask (q=%s%%)" % q_silent,       save=save, outdir=out, fname="3_gnn.png")
-
+    plot_ranked_clusters_numbered_with_mask(
+    src_xyz,
+    mask_gnn,
+    ranked_node_groups,
+    title="GNN silent regions (ranked clusters)",
+    save=args.save_figs,
+    outdir=args.fig_dir,
+    fname="7_gnn_ranked_clusters.png")
     # β / g curves
     fig = plt.figure(figsize=(6,3))
     plt.plot(beta[:300], label='beta')
