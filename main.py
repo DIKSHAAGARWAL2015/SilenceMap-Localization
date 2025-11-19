@@ -181,10 +181,6 @@ def run():
             print("Falling back to synthetic leadfield.")
             args.use_mat = False
 
-    if not args.use_mat:
-        L, src_xyz = make_synthetic_leadfield(p=args.p, n=args.n)
-        print("Using synthetic leadfield:", L.shape, "vertices:", src_xyz.shape)
-
     p = src_xyz.shape[0]
 
     # --- Simulate silence + EEG ---
