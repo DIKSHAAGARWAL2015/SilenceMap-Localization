@@ -9,7 +9,6 @@ Created multiple regions of silence. The result is stored in the rep folder. The
 # Multi-Region Silence Detection
 The code is modular, so each part of the pipeline (data loading, EEG simulation, β computation, graph construction, GNN, clustering, plotting) lives in its own file.
 ---
-
 ## Repository Structure
 main.py               → Runs the entire pipeline (loading → EEG → beta → graph → Laplacian → GNN → clustering → plots)
 
