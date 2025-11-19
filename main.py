@@ -8,7 +8,7 @@ import torch
 from scipy.sparse import identity
 from scipy.sparse.linalg import spsolve
 
-from dataloader import load_leadfield_any, make_synthetic_leadfield
+from dataloader import load_leadfield_any
 from compute_eeg import simulate_multiregion_silence_and_eeg
 from beta import beta_from_oracle_silence  # you can later swap to EEG-based beta
 from graph import knn_graph_gauss, laplacian_from_W, build_torch_graph
