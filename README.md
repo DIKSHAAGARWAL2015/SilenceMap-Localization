@@ -49,7 +49,7 @@ Results for binary beta:
 <img src="https://github.com/DIKSHAAGARWAL2015/SilenceMap-Localization/blob/main/figs/1_gt.png" width="450"/>
 
 ### GNN Output
-<img src="./figs/3_gnn.png" width="450"/>
+<img src="./figs/gt.png" width="450"/>
 
 ### Ranked Silent Clusters (GNN)
 <img src="./figs/7_gnn_ranked_clusters.png" width="450"/>
