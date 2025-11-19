@@ -46,3 +46,12 @@ pip install -r requirements.txt
 Make sure leadfield and cortex are present
 
 Results for binary beta:
+### Ground Truth Silent Regions
+<img src="figs/1_gt.png" width="450"/>
+
+### GNN Output
+<img src="figs/3_gnn.png" width="450"/>
+
+### Ranked Silent Clusters (GNN)
+<img src="figs/7_gnn_ranked_clusters.png" width="450"/>
+
