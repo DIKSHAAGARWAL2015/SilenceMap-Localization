@@ -8,19 +8,6 @@ Created multiple regions of silence. The result is stored in the rep folder. The
 
 # Multi-Region Silence Detection
 The code is modular, so each part of the pipeline (data loading, EEG simulation, β computation, graph construction, GNN, clustering, plotting) lives in its own file.
-
----
-
-## High-Level Pipeline
-
-1. **Load leadfield & cortex geometry** from `.mat` (or generate a synthetic one).
-2. **Simulate multi-region silence** on the cortex and generate EEG.
-3. **Compute β** (currently: **binary** from ground-truth silence; optionally EEG-based).
-4. **Build a k-NN graph** over cortical sources and compute the **Laplacian**.
-5. Train the **self-supervised GNN** on a single β vector to get `g_gnn`.
-6. Threshold `g_lap` and `g_gnn` to get silent masks, compute **Precision/Recall/F1**.
-7. Extract **connected components**, rank clusters, and visualize the results.
-
 ---
 
 ## Repository Structure
