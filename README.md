@@ -33,11 +33,13 @@ figs/                 → Stores generated figures
 ---
 Results for binary beta:
 ### Ground Truth Silent Regions
-<img width="300" height="300" alt="image" src="https://github.com/user-attachments/assets/7a38d847-85b6-44e4-8c55-e5f54decc5ac" />
+<img width="400" height="400" alt="image" src="https://github.com/user-attachments/assets/7a38d847-85b6-44e4-8c55-e5f54decc5ac" />
+
 ### GNN Output
-<img width="300" height="302" alt="image" src="https://github.com/user-attachments/assets/e08378e8-7cd3-4903-b6b3-2e929ddaaeab" />
+<img width="400" height="402" alt="image" src="https://github.com/user-attachments/assets/e08378e8-7cd3-4903-b6b3-2e929ddaaeab" />
+
 ### Ranked Silent Clusters (GNN)
-<img width="300" height="302" alt="image" src="https://github.com/user-attachments/assets/4eb5090c-46dd-4f57-bd16-ef5fcfc9f981" />
+<img width="400" height="400" alt="image" src="https://github.com/user-attachments/assets/4eb5090c-46dd-4f57-bd16-ef5fcfc9f981" />
 
 ## 🧪 How to Run
 
