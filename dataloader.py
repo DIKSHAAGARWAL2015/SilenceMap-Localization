@@ -114,11 +114,3 @@ def load_leadfield_any(leadfield_path, headmodel_path, leadfield_var=None, verti
     return L.astype(np.float32), src_xyz.astype(np.float32)
 
 
-def make_synthetic_leadfield(p=1662, n=128, seed=0):
-    """
-    Fallback synthetic leadfield and cortex coordinates.
-    """
-    rng = np.random.default_rng(seed)
-    src_xyz = rng.normal(size=(p, 3)).astype(np.float32)
-    L = rng.normal(scale=1e-3, size=(n, p)).astype(np.float32)
-    return L, src_xyz
