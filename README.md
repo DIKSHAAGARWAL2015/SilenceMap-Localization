@@ -11,7 +11,7 @@ The code is modular, so each part of the pipeline (data loading, EEG simulation,
 
 ---
 
-## 🎯 High-Level Pipeline
+## High-Level Pipeline
 
 1. **Load leadfield & cortex geometry** from `.mat` (or generate a synthetic one).
 2. **Simulate multi-region silence** on the cortex and generate EEG.
@@ -23,7 +23,7 @@ The code is modular, so each part of the pipeline (data loading, EEG simulation,
 
 ---
 
-## 📁 Repository Structure
+## Repository Structure
 main.py               → Runs the entire pipeline (loading → EEG → beta → graph → Laplacian → GNN → clustering → plots)
 
 dataloader.py         → Loads leadfield & cortex from .mat files or generates synthetic leadfield + coordinates
@@ -59,3 +59,5 @@ pip install -r requirements.txt
   --leadfield_path /content/sample_data/OT_leadfield_symmetric_1662-128.mat \
   --headmodel_path /content/sample_data/OT_headmodel_symmetric_1662-128.mat
 Make sure leadfield and cortex are present
+
+Results for binary beta:
