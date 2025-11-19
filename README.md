@@ -1,6 +1,5 @@
 # SilenceMap-Localization
-SilenceMap Localization
-Created multiple regions of silence. The result is stored in the rep folder. The number of region of silence can vary from 1-5.
+Created multiple regions of silence.The number of regions of silence can vary from 1-5.
 
 
 
@@ -9,17 +8,17 @@ Created multiple regions of silence. The result is stored in the rep folder. The
 # Multi-Region Silence Detection
 
 ## Repository Structure
-main.py               → Runs the entire pipeline (loading → EEG → beta → graph → Laplacian → GNN → clustering → plots)
+main.py               → Runs the entire pipeline (loading → EEG → beta → graph → GNN → clustering → plots)
 
-dataloader.py         → Loads leadfield & cortex from .mat files or generates synthetic leadfield + coordinates
+dataloader.py         → Loads leadfield & cortex from .mat files
 
-compute_eeg.py        → Simulates multi-region silence, generates EEG, applies filters, computes SNR
+compute_eeg.py        → Simulates multi-region silence, generates EEG, computes SNR
 
-beta.py               → Computes beta values (oracle beta, EEG-based beta, mixing, normalization)
+beta.py               → Computes beta values
 
-graph.py              → Builds k-NN graph, Gaussian edge weights, Laplacian, and PyTorch sparse adjacency
+graph.py              → Builds k-NN graph
 
-gnn.py                → Defines the BetaGNN model and Laplacian energy used in self-supervised GNN optimization
+gnn.py                → Defines the BetaGNN model used in self-supervised GNN optimization
 
 clusters_ranking.py   → Extracts silent clusters from GNN/Laplacian masks and ranks them by size & compactness
 
@@ -29,7 +28,7 @@ requirements.txt      → Lists Python dependencies
 
 __init__.py           → Marks the repository as a Python package
 ''
-figs/                 → (Optional) Stores generated figures from the pipeline
+figs/                 → Stores generated figures
 
 ---
 
