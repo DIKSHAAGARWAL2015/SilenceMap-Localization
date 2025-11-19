@@ -46,7 +46,7 @@ Make sure leadfield and cortex are present
 
 Results for binary beta:
 ### Ground Truth Silent Regions
-<img src="https://github.com/DIKSHAAGARWAL2015/SilenceMap-Localization/blob/main/figs/1_gt.png" width="450"/>
+<img src="https://github.com/DIKSHAAGARWAL2015/SilenceMap-Localization/blob/main/figs/gt.png?raw=true" width="450"/>
 
 ### GNN Output
 <img src="figs/gt.png" width="450"/>
