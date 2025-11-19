@@ -21,6 +21,9 @@ from scipy.io import loadmat
 import torch
 import torch.nn as nn
 import torch.optim as optim
+import numpy as np
+import math
+from scipy.signal import welch
 
 def _walk_py(obj, prefix=""):
     """Recursively walk Python objects (dicts/lists/arrays) from mat73."""
@@ -220,105 +223,6 @@ def lap_energy(g, Lcoo):
     L_t = torch.sparse_coo_tensor(i, v, Lcoo.shape).coalesce()
     Lg = torch.sparse.mm(L_t, g)
     return (g * Lg).sum()
-    
-import numpy as np
-import math
-from scipy.signal import welch
-
-def compute_beta_silencemap(eeg, L, Fs):
-    """
-    EEG-based approximate SilenceMap beta (realistic, noisy):
-      - Welch PSD to estimate sensor noise in a high-frequency band
-      - Project EEG into source space: Mu_tilda = L^T * eeg
-      - Remove estimated noise contribution
-      - Normalize by Var_norm_fact = sum((L^T L)^2, 2)
-      - Return beta in [0, 1]
-    """
-    eeg = np.asarray(eeg, dtype=np.float64)  # (n, t)
-    L1  = np.asarray(L,   dtype=np.float64)  # (n, p)
-    n, t = eeg.shape
-
-    # ---------- Welch parameters ----------
-    w_length = int(min(math.floor(0.5 * t), 256))
-    w_over   = int(math.floor(0.5 * w_length))
-    if w_length < 8:
-        w_length = min(t, 64)
-        w_over   = w_length // 2
-
-    # ---------- Noise PSD estimate (sensor space) ----------
-    # pwelch(Y',...) in MATLAB with Y: (n x t) → we use axis=1 (time axis)
-    f, pxx = welch(
-        eeg,
-        fs=Fs,
-        nperseg=w_length,
-        noverlap=w_over,
-        nfft=256,
-        axis=1
-    )   # pxx: (n, F)
-
-    # High-frequency band for noise (approx 90–100 Hz)
-    band = (f >= 90.0) & (f <= 100.0)
-    if not np.any(band):
-        # fallback: top 20% of available freqs, more generic
-        band = f >= f.max() * 0.8
-    eta = pxx[:, band].mean(axis=1)  # (n,)
-
-    # Rough scaling; matches MATLAB's (100 - 0.1) but we add a guard
-    bandwidth = max(f[band].max() - f[band].min(), 1.0)
-    sigma_z_sqrd = eta * bandwidth   # (n,)
-
-    # ---------- Var_norm_fact from (L^T L)^2 ----------
-    LL = L1.T @ L1             # (p, p)
-    LL_sq = LL ** 2
-    Var_norm_fact = LL_sq.sum(axis=1) + 1e-12  # (p,)
-
-    # ---------- Project EEG to source space ----------
-    Mu_tilda = L1.T @ eeg      # (p, t)
-
-    f_mu, pxx_mu = welch(
-        Mu_tilda,
-        fs=Fs,
-        nperseg=w_length,
-        noverlap=w_over,
-        nfft=256,
-        axis=1
-    )   # pxx_mu: (p, F_mu)
-
-    if len(f_mu) > 1:
-        df_mu = f_mu[1] - f_mu[0]
-    else:
-        df_mu = 1.0
-
-    # Var(mu) = ∫ PSD df - mean^2
-    sigma_mu_sqrd = pxx_mu.sum(axis=1) * df_mu - (Mu_tilda.mean(axis=1) ** 2)
-    sigma_mu_sqrd = sigma_mu_sqrd.astype(np.float64)  # (p,)
-
-    # ---------- Noise contribution in source space: diag(L^T C_z L) ----------
-    # C_z = diag(sigma_z_sqrd)
-    # diag(L^T C_z L)_i = sum_n sigma_z_sqrd[n] * L1[n, i]^2
-    noise_src_var = (L1**2 * sigma_z_sqrd[:, None]).sum(axis=0)  # (p,)
-
-    # Remove noise and clip
-    sigma_mu_sqrd_wo_noise = sigma_mu_sqrd - noise_src_var
-    sigma_mu_sqrd_wo_noise = np.maximum(sigma_mu_sqrd_wo_noise, 0.0)
-
-    # ---------- Beta = sigma_mu_wo_noise ./ Var_norm_fact ----------
-    beta = sigma_mu_sqrd_wo_noise / Var_norm_fact
-    beta = beta.astype(np.float32)
-
-    # Remove NaNs / Infs
-    beta[~np.isfinite(beta)] = 0.0
-
-    # Normalize to [0,1] with guard
-    bmin, bmax = beta.min(), beta.max()
-    if bmax > bmin:
-        beta = (beta - bmin) / (bmax - bmin)
-    else:
-        # pathological case: all equal → set everything to 0
-        beta = np.zeros_like(beta, dtype=np.float32)
-
-    return beta  # shape: (p,)
-
 
 # ========================= GNN =========================
 class BetaGNN(nn.Module):
@@ -341,7 +245,7 @@ class BetaGNN(nn.Module):
         AH, A2H = self.mp(H)
         H = torch.relu(self.lin_mp1(AH) + self.lin_mp2(A2H))
         g = torch.nn.functional.softplus(self.lin_out(H))        # ≥0
-        g = (g - g.min()) / (g.max() - g.min() + 1e-8)           # normalize
+        #g = (g - g.min()) / (g.max() - g.min() + 1e-8)           # normalize
         return g
     
 # ========================= Main pipeline =========================
@@ -363,7 +267,7 @@ def main():
     parser.add_argument("--gnn_hidden", type=int, default=64)
     parser.add_argument("--gnn_steps", type=int, default=2000)
     parser.add_argument("--gnn_lr", type=float, default=1e-2)
-    parser.add_argument("--gnn_lambda", type=float, default=1.0, help="Smooth term weight")
+    parser.add_argument("--gnn_lambda", type=float, default=5.0, help="Smooth term weight")
     parser.add_argument("--gnn_gamma", type=float, default=0.5, help="Seed term weight")
     parser.add_argument("--save_figs", action="store_true", help="Save figures instead of showing")
     parser.add_argument("--fig_dir", type=str, default="/content/sample_data/figs/", help="Where to save figures")
@@ -436,37 +340,51 @@ def main():
     print(f"Avg SNR ≈ {snr:.2f} dB")
     
     ## -------- Compute beta from EEG --------
-    #Ceeg = (eeg @ eeg.T) / float(t)        # (n,n)
-    #AtA  = L.T @ Ceeg @ L                  # (p,p)
-    #beta = np.diag(AtA).astype(np.float32)
-    #beta -= beta.min()
-    #beta /= (beta.max() + 1e-12)
+    """Ceeg = (eeg @ eeg.T) / float(t)        # (n,n)
+    AtA  = L.T @ Ceeg @ L                  # (p,p)
+    beta_eeg = np.diag(AtA).astype(np.float32)
+    # assuming beta is not completely constant
+    beta_eeg = beta_eeg.astype(np.float64)
+    beta_oracle = np.ones(p, dtype=np.float32)
+    beta_oracle[X_act] = 0.0
+    alpha = 0.5  # 1.0 = pure oracle, 0.0 = pure EEG
+    beta = (1 - alpha) * beta_eeg + alpha * beta_oracle
+    beta -= beta.min()
+    beta /= (beta.max() + 1e-12)"""
     # -------- Compute beta from EEG (SilenceMap-style) --------
-    
-    beta = compute_beta_silencemap(eeg, L, Fs)
-    print(beta.shape, beta.min(), beta.max())
-    print("mean beta:", beta.mean())
-    print("fraction > 0.5:", (beta > 0.5).mean())
-    import matplotlib.pyplot as plt
-    plt.hist(beta, bins=50)
-    plt.title("Realistic beta distribution")
-    plt.show()
+    #ref_indices = [40,50,56,63,64,65,68,73,84,95]
+    #ref_indices = [i - 1 for i in ref_indices]  # convert to 0-based
+    #binary beta
+    mat = loadmat('/content/sample_data/silencemap_beta.mat')   # adjust path if needed
 
-    ref_indices = [40,50,56,63,64,65,68,73,84,95]
-    ref_indices = [i - 1 for i in ref_indices]  # convert to 0-based
-    # -------- Compute beta from EEG (simulation) --------
-    '''beta = compute_beta_silencemap(eeg, L, Fs)
-    k_silent_gt = int(X_act.sum())
-    thr_beta = np.partition(beta, k_silent_gt-1)[k_silent_gt-1]  # exact k smallest
-    mask_beta = beta <= thr_beta
+    beta_mat = mat['Betta'].squeeze()      # (p,) or (p,1) → (p,)
+    #X_act_mat = mat['X_act'].squeeze()     # optional, but nice to compare
+    # silence_indices = mat['silence_indices'].squeeze()  # if you stored these
+    beta = beta_mat.astype(np.float32)
+    # Normalize like in Python pipeline
+    beta -= beta.min()
+    beta /= (beta.max() + 1e-12)
+    silent = X_act.astype(bool)
+    active = ~silent
+    mean_silent = float(beta[silent].mean())
+    mean_active = float(beta[active].mean())
+    print("mean(beta silent) :", mean_silent)
+    print("mean(beta active) :", mean_active)
 
-    overlap = (mask_beta & X_act).sum()
-    print("\n[beta raw mask]")
-    print("  GT silent:", int(X_act.sum()),
-          "beta-silent:", int(mask_beta.sum()),
-          "overlap:", int(overlap))'''
-    beta = np.ones(p, dtype=np.float32)
-    beta[X_act] = 0.0
+    # If silent nodes have larger beta than active ones, flip the scale
+    if mean_silent > mean_active:
+        print(">> Flipping beta: making silent = low values")
+        beta = 1.0 - beta
+
+    # If you want to sanity check:
+    print("beta shape:", beta.shape)
+    print("beta min/max:", beta.min(), beta.max())
+    #print("mean(beta silent):", float(beta[X_act_mat == 1].mean()))
+    #print("mean(beta active):", float(beta[X_act_mat == 0].mean()))
+    #print("corr with X_act:", float(np.corrcoef(beta, X_act_mat.astype(float))[0,1]))
+
+    """beta = np.ones(p, dtype=np.float32)
+    beta[X_act] = 0.0"""
         # -------- Graph + Laplacian smoother baseline --------
     kNN, sigmaW = args.kNN, args.sigmaW
     W, deg = knn_graph_gauss(src_xyz, k=kNN, sigma=sigmaW)
@@ -498,9 +416,30 @@ def main():
 
     # seeds: also pick the k_silent smallest beta values as "most silent-looking"
     beta_arr = np.asarray(beta)
-    idx_seed = np.argpartition(beta_arr, k_silent-1)[:k_silent]
+    """idx_seed = np.argpartition(beta_arr, k_silent-1)[:k_silent]
     seed_mask = torch.zeros(beta_arr.shape[0], dtype=torch.bool, device=device)
-    seed_mask[idx_seed] = True
+    seed_mask[idx_seed] = True"""
+    # ---- NEW SEED SELECTION (replace old argpartition version) ----
+
+    q_seed = 0.03   # 3% seeds (you can adjust)
+    k_seed = max(5, int(q_seed * len(beta_arr)))   # ensure minimum 5 seeds
+
+    # Sort beta: silent ~ 0, active ~ 1
+    idx_sorted = np.argsort(beta_arr)
+
+    # Lowest β → silent seeds
+    silent_seeds = idx_sorted[:k_seed]
+
+    # Highest β → active seeds
+    active_seeds = idx_sorted[-k_seed:]
+
+    # Create masks
+    seed_silent_mask = torch.zeros(beta_arr.shape[0], dtype=torch.bool, device=device)
+    seed_active_mask = torch.zeros(beta_arr.shape[0], dtype=torch.bool, device=device)
+
+    seed_silent_mask[silent_seeds] = True
+    seed_active_mask[active_seeds] = True
+
 
     hidden   = args.gnn_hidden
     steps    = args.gnn_steps
@@ -520,8 +459,12 @@ def main():
 
         data_term   = ((g - beta_t)**2).mean()
         smooth_term = lap_energy(g, Lcoo) / src_xyz.shape[0]
-        seed_term   = g[seed_mask].mean()
-        loss = data_term + lam_gnn * smooth_term + gamma_gnn * seed_term
+        #seed_term   = g[seed_mask].mean()
+        loss_silent = torch.mean(g[seed_silent_mask]**2)          # g -> 0
+        loss_active = torch.mean((g[seed_active_mask] - 1)**2)    # g -> 1
+        loss_seed = loss_silent + loss_active
+
+        loss = data_term + lam_gnn * smooth_term + gamma_gnn * loss_seed
 
         loss.backward()
         opt.step()
@@ -529,11 +472,12 @@ def main():
             print(f"[{it+1:04d}] loss={loss.item():.5f} "
                   f"data={data_term.item():.5f} "
                   f"smooth={smooth_term.item():.5f} "
-                  f"seed={seed_term.item():.5f}")
+                  f"seed={loss_seed.item():.5f}")
 
     with torch.no_grad():
-        g_hat = model(beta_t, deg_feat).squeeze(1).detach().cpu().numpy()
-
+        #g_hat = model(beta_t, deg_feat).squeeze(1).detach().cpu().numpy()
+        g_raw = model(beta_t, deg_feat).squeeze(1).cpu().numpy()
+        g_hat = (g_raw - g_raw.min()) / (g_raw.max() - g_raw.min() + 1e-12)
     # ---- GNN mask: choose k_silent *smallest* g_hat values as silent ----
     g_hat_arr = np.asarray(g_hat)
     idx_gnn = np.argpartition(g_hat_arr, k_silent-1)[:k_silent]
