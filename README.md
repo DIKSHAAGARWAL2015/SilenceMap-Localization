@@ -58,17 +58,13 @@ RANK 4 → cluster 0
 
 ## Top clusters (by size & compactness):
 
-  Cluster 2: size=13, mean_dist=12.713, score=1.023
+Cluster 2: size=13, radius=8.33
+Cluster 4: size=12, radius=9.02
+Cluster 3: size=10, radius=8.95
+Cluster 1: size=9, radius=9.07
+Cluster 0: size=6, radius=8.19
   
-  Cluster 4: size=12, mean_dist=13.365, score=0.898
-  
-  Cluster 3: size=10, mean_dist=13.397, score=0.746
-  
-  Cluster 1: size=9, mean_dist=13.542, score=0.665
-  
-  Cluster 0: size=6, mean_dist=12.535, score=0.479
-  
-size = number of nodes in each cluster, score = size / mean_dist, mean_dist = within a cluster calculated all distances and averaged out.
+size = number of nodes in each cluster, radius = mean Euclidean distance of cluster nodes to their centroid. So 
 ## 🧪 How to Run
 
 Install dependencies (in a fresh environment):
