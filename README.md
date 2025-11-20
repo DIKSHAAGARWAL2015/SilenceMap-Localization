@@ -39,7 +39,7 @@ Results for binary beta:
 <img width="400" height="402" alt="image" src="https://github.com/user-attachments/assets/e08378e8-7cd3-4903-b6b3-2e929ddaaeab" />
 
 ### Ranked Silent Clusters (GNN) [ 0 - best and number in this fig corresponds to rank of clusters]
-<img width="843" height="876" alt="image" src="https://github.com/user-attachments/assets/15281544-5fdf-4ce7-9258-2922de56e177" />
+<img width="900" height="887" alt="image" src="https://github.com/user-attachments/assets/f722f966-cdad-48f1-9e67-bfe1c5b68c1a" />
 
 ## Result inference:
 
