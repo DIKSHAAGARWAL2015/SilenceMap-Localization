@@ -64,7 +64,7 @@ Cluster 3: size=10, radius=8.95
 Cluster 1: size=9, radius=9.07
 Cluster 0: size=6, radius=8.19
   
-size = number of nodes in each cluster, radius = mean Euclidean distance of cluster nodes to their centroid. So 
+size = number of nodes in each cluster, radius = mean Euclidean distance of cluster nodes to their centroid. So, start with a bigger size, then the radius. 
 ## 🧪 How to Run
 
 Install dependencies (in a fresh environment):
