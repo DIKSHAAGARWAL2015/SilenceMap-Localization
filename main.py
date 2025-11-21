@@ -279,20 +279,21 @@ def run():
     # --- Clusters from GNN mask ---
     clusters = extract_clusters_from_mask_sparse(mask_gnn, W)
     print(f"Found {len(clusters)} GNN clusters among silent nodes.")
-
+    
     ranked_clusters = rank_clusters(clusters, src_xyz)
     ranked_node_groups = [
         (rank_id, info["nodes"]) for rank_id, info in enumerate(ranked_clusters, start=1)
     ]
+    for r, info in enumerate(ranked_clusters):
+        print(f"Rank {r}: C{info['cluster_id']} "
+          f"(size={info['size']}, radius={info['radius']:.2f}, "
+          f"score={info['score']:.3f})")
+    ranked_node_groups = [
+    (rank_id, info["nodes"])
+    for rank_id, info in enumerate(ranked_clusters)
+    ]
+    print(ranked_node_groups)
 
-    print("\nTop clusters (by size & compactness):")
-    for c in ranked_clusters[:5]:
-        print(
-            f"  Cluster {c['cluster_id']}: "
-            f"size={c['size']}, "
-            f"mean_dist={c['mean_internal_distance']:.3f}, "
-            f"score={c['score']:.3f}"
-        )
 
     # --- Stats + plots ---
     stats_against_ground_truth("beta", beta, X_act)
@@ -328,14 +329,13 @@ def run():
     )
 
     plot_ranked_clusters_numbered_with_mask(
-        src_xyz,
-        mask_gnn,
-        ranked_node_groups,
-        title="GNN silent regions (ranked clusters)",
-        save=save,
-        outdir=out,
-        fname="7_gnn_ranked_clusters.png",
-    )
+    src_xyz,
+    mask_gnn,
+    ranked_node_groups,ranked_clusters,
+    title="GNN silent regions (ranked clusters)",
+    save=args.save_figs,
+    outdir=args.fig_dir,
+    fname="gnn_ranked_clusters.png")
 
     plot_beta_g_curves(
         beta=beta,
