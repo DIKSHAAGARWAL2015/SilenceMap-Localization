@@ -33,15 +33,16 @@ figs/                 → Stores generated figures
 ---
 Results for binary beta:
 ### Ground Truth Silent Regions
-<img width="600" height="600" alt="image" src="https://github.com/user-attachments/assets/58bfb83c-a7aa-4dc9-8bfb-e9538cf5368c" />
+<img width="600" height="600" alt="image" src="https://github.com/user-attachments/assets/68d7ac82-5533-4e10-8de1-43642addbca0" />
 
 
 ### GNN Output
-<img width="600" height="600" alt="image" src="https://github.com/user-attachments/assets/47911863-1df0-4603-9f9c-52f42a274335" />
+<img width="600" height="600" alt="image" src="https://github.com/user-attachments/assets/604040d8-ca08-4d54-ac1d-c78a22f1ddff" />
 
 
 ### Ranked Silent Clusters (GNN) [ 0 - best and number in this fig corresponds to rank of clusters]
-<img width="863" height="895" alt="image" src="https://github.com/user-attachments/assets/8e19fb15-5483-4913-ac0d-6d8fcb213051" />
+<img width="861" height="881" alt="image" src="https://github.com/user-attachments/assets/66cf1781-124b-42d5-a1a9-41b4c6a82cb9" />
+
 
 
 ## Result inference:
@@ -58,17 +59,15 @@ RANK 4 → cluster 0
 
 ## Top clusters (by size & compactness):
 
-Cluster 2: size=13, radius=8.33
+Found 5 GNN clusters among silent nodes.
+Rank 0: C2 (size=13, radius=8.78, score=1.481)
+Rank 1: C4 (size=12, radius=9.51, score=1.261)
+Rank 2: C3 (size=10, radius=8.63, score=1.159)
+Rank 3: C1 (size=9, radius=8.45, score=1.065)
+Rank 4: C0 (size=6, radius=8.74, score=0.687)
 
-Cluster 4: size=12, radius=9.02
-
-Cluster 3: size=10, radius=8.95
-
-Cluster 1: size=9, radius=9.07
-
-Cluster 0: size=6, radius=8.19
   
-size = number of nodes in each cluster, radius = mean Euclidean distance of cluster nodes to their centroid. So, start with a bigger size, then the radius. 
+size = number of nodes in each cluster, radius = median of Euclidean distance of cluster nodes to their centroid. Centroid is calculated from the mean of all detected coordinates in the cluster. Score = size/radius
 ## 🧪 How to Run
 
 Install dependencies (in a fresh environment):
