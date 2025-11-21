@@ -60,10 +60,15 @@ RANK 4 → cluster 0
 ## Top clusters (by size & compactness):
 
 Found 5 GNN clusters among silent nodes.
+
 Rank 0: C2 (size=13, radius=8.78, score=1.481)
+
 Rank 1: C4 (size=12, radius=9.51, score=1.261)
+
 Rank 2: C3 (size=10, radius=8.63, score=1.159)
+
 Rank 3: C1 (size=9, radius=8.45, score=1.065)
+
 Rank 4: C0 (size=6, radius=8.74, score=0.687)
 
   
