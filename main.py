@@ -11,6 +11,7 @@ from scipy.sparse.linalg import spsolve
 from dataloader import load_leadfield_any
 from compute_eeg import simulate_multiregion_silence_and_eeg
 from beta import beta_from_oracle_silence  # you can later swap to EEG-based beta
+#from beta import beta_from_eeg
 from graph import knn_graph_gauss, laplacian_from_W, build_torch_graph
 from gnn import BetaGNN, lap_energy, device
 from plotting import (
@@ -193,7 +194,9 @@ def run():
         Fs=args.Fs,
     )
     print(f"Avg SNR ≈ {snr:.2f} dB")
-
+    #########################################
+    #beta = beta_from_eeg(L, eeg)
+    #######################################
     # --- Beta computation (currently: oracle binary) ---
     beta = beta_from_oracle_silence(X_act)
 
@@ -312,11 +315,11 @@ def run():
 
     print("Mean Jaccard:", metrics["mean_jaccard"])
     print("Mean ΔCOM:", metrics["mean_delta_com"])
-    print("Mean size rel error:", metrics["mean_size_rel_error"])
+    print("Δk:", metrics["mean_size_rel_error"])
 
     for m in metrics["per_pair"]:
        print(
-        f"GT id {m['gt_cluster_id']} ↔ Pred id {m['pred_cluster_id']}: "
+        f"G{m['gt_cluster_id']} ↔ C{m['pred_cluster_id']}: "
         f"J={m['jaccard']:.3f}, ΔCOM={m['delta_com']:.2f}, "
         f"size_gt={m['size_gt']}, size_pred={m['size_pred']}"
        )

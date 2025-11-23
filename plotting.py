@@ -110,7 +110,6 @@ def plot_ranked_clusters_numbered_with_mask(coords, mask, ranked_node_groups,ran
     else:
         plt.show()
 
-
 def plot_beta_g_curves(beta, g_lap, g_gnn, save=False, outdir="./figs/", fname="curves.png"):
     beta = np.asarray(beta)
     g_lap = np.asarray(g_lap)

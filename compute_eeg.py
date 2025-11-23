@@ -83,7 +83,10 @@ def simulate_multiregion_silence_and_eeg(
 
     # Noise
     E = rng.normal(0, np.sqrt(noise_pow), size=(n, t)).astype(np.float32)
-
+    #################################
+    #Noiseless
+    #E = 0
+    ###############################
     # Clean EEG and filtered EEG
     eeg_clean = L @ S
     eeg_lp = butter_lowpass_filter(eeg_clean, fs=Fs, cutoff=90.0, order=4)
@@ -100,5 +103,9 @@ def simulate_multiregion_silence_and_eeg(
     snr = float(
         (10.0 * np.log10(np.var(eeg_nosil, axis=1) / (noise_pow + 1e-12))).mean()
     )
+    ##############################
+    #noiseless
+    #snr = 100.0  # define 100 dB for noiseless baseline
+    ####################################
 
     return X_act, eeg, snr, Cs_full
