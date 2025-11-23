@@ -88,6 +88,8 @@ GT id 3 ↔ Pred id 3: J=0.818, ΔCOM=2.20, size_gt=10, size_pred=10
 
 GT id 1 ↔ Pred id 1: J=0.900, ΔCOM=1.50, size_gt=10, size_pred=9
 
+Here, GT is ground truth, Pred is predicted  
+
 ## 🧪 How to Run
 
 Install dependencies (in a fresh environment):
