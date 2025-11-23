@@ -19,7 +19,7 @@ from plotting import (
     plot_beta_g_curves,
 )
 from clusters_ranking import extract_clusters_from_mask_sparse, rank_clusters
-
+from eval_silence_localization import evaluate_silence_localization_multi_region
 
 # ---------- Metrics ----------
 
@@ -293,7 +293,33 @@ def run():
     for rank_id, info in enumerate(ranked_clusters)
     ]
     print(ranked_node_groups)
+    # 1. Get clusters from masks (you already have this)
+    gt_clusters_list = extract_clusters_from_mask_sparse(X_act, W)      # list[list[int]]
+    pred_clusters_list = extract_clusters_from_mask_sparse(mask_gnn, W)  # list[list[int]]
+    coords = src_xyz
+    # 2. Rank them with YOUR function
+    gt_ranked = rank_clusters(gt_clusters_list, coords)       # your rank_clusters
+    pred_ranked = rank_clusters(pred_clusters_list, coords)
 
+    # 3. Evaluate localization performance
+    metrics = evaluate_silence_localization_multi_region(
+    gt_ranked,
+    pred_ranked,
+    coords,
+    top_k_gt=None,    # or e.g. 3 if you want top 3 GT regions
+    top_k_pred=None,  # or e.g. 5
+    )
+
+    print("Mean Jaccard:", metrics["mean_jaccard"])
+    print("Mean ΔCOM:", metrics["mean_delta_com"])
+    print("Mean size rel error:", metrics["mean_size_rel_error"])
+
+    for m in metrics["per_pair"]:
+       print(
+        f"GT id {m['gt_cluster_id']} ↔ Pred id {m['pred_cluster_id']}: "
+        f"J={m['jaccard']:.3f}, ΔCOM={m['delta_com']:.2f}, "
+        f"size_gt={m['size_gt']}, size_pred={m['size_pred']}"
+       )
 
     # --- Stats + plots ---
     stats_against_ground_truth("beta", beta, X_act)
