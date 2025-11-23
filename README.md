@@ -73,6 +73,23 @@ Rank 4: C0 (size=6, radius=8.74, score=0.687)
 
   
 size = number of nodes in each cluster, radius = median of Euclidean distance of cluster nodes to their centroid. Centroid is calculated from the mean of all detected coordinates in the cluster. Score = size/radius
+## Metrics for Calculation:
+### Mean Jaccard: 0.7841491841491136
+### Mean ΔCOM: 2.121125268936157mm
+### Mean size rel error: 0.19999999999998
+
+GT id 2 ↔ Pred id 2: J=0.769, ΔCOM=2.43, size_gt=10, size_pred=13
+
+GT id 0 ↔ Pred id 0: J=0.600, ΔCOM=2.78, size_gt=10, size_pred=6
+
+GT id 4 ↔ Pred id 4: J=0.833, ΔCOM=1.71, size_gt=10, size_pred=12
+
+GT id 3 ↔ Pred id 3: J=0.818, ΔCOM=2.20, size_gt=10, size_pred=10
+
+GT id 1 ↔ Pred id 1: J=0.900, ΔCOM=1.50, size_gt=10, size_pred=9
+
+Here, GT is ground truth, Pred is predicted  
+
 ## 🧪 How to Run
 
 Install dependencies (in a fresh environment):
