@@ -122,3 +122,58 @@ def plot_beta_g_curves(beta, g_lap, g_gnn, save=False, outdir="./figs/", fname="
     plt.legend()
     plt.title("First 300 nodes")
     show_or_save(fig, fname, save=save, outdir=outdir)
+import numpy as np
+import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
+import imageio
+import os
+
+def rotate_cortex_360(coords, mask, title="", outdir="./figs/",
+                      fname="rotate_brain.gif",
+                      steps=60, elev=20, point_size=8):
+
+    coords = np.asarray(coords)
+    mask   = np.asarray(mask, dtype=bool)
+
+    # Bright for masked nodes, dim for non-mask
+    c = np.where(mask, 1.0, 0.1)
+
+    # Create output path
+    os.makedirs(outdir, exist_ok=True)
+    temp_frames = []
+
+    fig = plt.figure(figsize=(6, 6))
+    ax = fig.add_subplot(111, projection="3d")
+
+    # Scatter plot
+    ax.scatter(
+        coords[:, 0],
+        coords[:, 1],
+        coords[:, 2],
+        c=c, s=point_size, cmap="cool"
+    )
+    ax.set_title(title)
+    ax.set_axis_off()
+
+    # Rotate for 360 degrees
+    for azim in np.linspace(0, 360, steps):
+        ax.view_init(elev=elev, azim=azim)
+
+        # Save each frame to buffer
+        frame_path = f"{outdir}/frame_{int(azim)}.png"
+        plt.savefig(frame_path, dpi=100, bbox_inches='tight')
+        temp_frames.append(frame_path)
+
+    plt.close(fig)
+
+    # Create GIF
+    images = []
+    for frame_path in temp_frames:
+        images.append(imageio.imread(frame_path))
+    imageio.mimsave(f"{outdir}/{fname}", images, duration=0.05)
+
+    # Clean temp frames
+    for frame_path in temp_frames:
+        os.remove(frame_path)
+
+    print(f"Saved rotating brain GIF: {outdir}/{fname}")

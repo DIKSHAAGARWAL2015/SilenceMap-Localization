@@ -18,6 +18,7 @@ from plotting import (
     show_cortex_mask,
     plot_ranked_clusters_numbered_with_mask,
     plot_beta_g_curves,
+    rotate_cortex_360,
 )
 from clusters_ranking import extract_clusters_from_mask_sparse, rank_clusters
 from eval_silence_localization import evaluate_silence_localization_multi_region
@@ -373,6 +374,14 @@ def run():
         save=save,
         outdir=out,
         fname="4_curves.png",
+    )
+    rotate_cortex_360 (
+    coords,X_act,
+    title="Brain Mask Rotation",
+    outdir="./figs/",
+    fname="brain_rotate.gif",
+    steps=90,    # smoother rotation (more frames)
+    elev=15      # vertical angle
     )
 
 
