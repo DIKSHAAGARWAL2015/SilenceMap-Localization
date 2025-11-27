@@ -18,7 +18,7 @@ from plotting import (
     show_cortex_mask,
     plot_ranked_clusters_numbered_with_mask,
     plot_beta_g_curves,
-    rotate_cortex_360,
+    rotate_cortex_360,plot_gt_gnn_clusters_3x5
 )
 from clusters_ranking import extract_clusters_from_mask_sparse, rank_clusters
 from eval_silence_localization import evaluate_silence_localization_multi_region
@@ -383,6 +383,17 @@ def run():
     steps=90,    # smoother rotation (more frames)
     elev=15      # vertical angle
     )
+
+    plot_gt_gnn_clusters_3x5(
+    src_xyz,
+    X_act,
+    mask_gnn,
+    ranked_clusters,
+    title_prefix="GT vs GNN vs Ranked Clusters (5 views)",
+    save=args.save_figs,
+    outdir=args.fig_dir,
+    fname="gt_gnn_clusters_3x5.png",
+)
 
 
 def main():

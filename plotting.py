@@ -177,3 +177,120 @@ def rotate_cortex_360(coords, mask, title="", outdir="./figs/",
         os.remove(frame_path)
 
     print(f"Saved rotating brain GIF: {outdir}/{fname}")
+
+def plot_gt_gnn_clusters_3x5(
+    coords,
+    gt_mask,
+    gnn_mask,
+    ranked_clusters,
+    title_prefix="GT vs GNN vs Clusters (5 views)",
+    save=False,
+    outdir="./figs/",
+    fname="gt_gnn_clusters_3x5.png",
+):
+    """
+    Make a 3 x 5 panel:
+
+        Row 1: GT silent mask (X_act) in 5 views
+        Row 2: GNN silent mask in 5 views
+        Row 3: Ranked clusters (each cluster = color) in 5 views
+
+    Columns are standard anatomical views:
+        front, back, left, right, top
+    """
+
+    coords = np.asarray(coords)
+    gt_mask = np.asarray(gt_mask, dtype=bool)
+    gnn_mask = np.asarray(gnn_mask, dtype=bool)
+
+    # ----- cluster colors -----
+    # use tab10 or tab20 depending on how many clusters you have
+    n_clusters = len(ranked_clusters)
+    cmap = plt.cm.get_cmap("tab20", max(n_clusters, 1))
+
+    cluster_nodes_and_colors = []
+    for i, info in enumerate(ranked_clusters):
+        nodes = np.array(info["nodes"], dtype=int)
+        color = cmap(i % cmap.N)
+        cluster_nodes_and_colors.append((nodes, color, i))
+
+    # ----- standard views: (name, elev, azim) -----
+    views = [
+        ("front", 20, 180),
+        ("back",  20,   0),
+        ("left",  20,  90),
+        ("right", 20, -90),
+        ("top",   90, 180),
+    ]
+
+    fig = plt.figure(figsize=(22, 12))
+
+    # colors for masks (silent nodes bright, others dim)
+    gt_c = np.where(gt_mask, 1.0, 0.1)
+    gnn_c = np.where(gnn_mask, 1.0, 0.1)
+
+    for col, (view_name, elev, azim) in enumerate(views, start=1):
+
+        # -------- Row 1: GT --------
+        ax1 = fig.add_subplot(3, 5, col, projection="3d")
+        ax1.scatter(
+            coords[:, 0], coords[:, 1], coords[:, 2],
+            c=gt_c, s=6, cmap="cool"
+        )
+        ax1.view_init(elev=elev, azim=azim)
+        ax1.set_title(f"GT – {view_name}")
+        ax1.set_axis_off()
+
+        # -------- Row 2: GNN --------
+        ax2 = fig.add_subplot(3, 5, 5 + col, projection="3d")
+        ax2.scatter(
+            coords[:, 0], coords[:, 1], coords[:, 2],
+            c=gnn_c, s=6, cmap="cool"
+        )
+        ax2.view_init(elev=elev, azim=azim)
+        ax2.set_title(f"GNN – {view_name}")
+        ax2.set_axis_off()
+
+        # -------- Row 3: Ranked clusters --------
+        ax3 = fig.add_subplot(3, 5, 10 + col, projection="3d")
+
+        # plot each cluster in its color
+        for nodes, color, rank_id in cluster_nodes_and_colors:
+            pts = coords[nodes]
+            ax3.scatter(
+                pts[:, 0], pts[:, 1], pts[:, 2],
+                s=15,
+                color=color,
+                label=f"R{rank_id}"
+            )
+
+        ax3.view_init(elev=elev, azim=azim)
+        ax3.set_title(f"Clusters – {view_name}")
+        ax3.set_axis_off()
+
+    fig.suptitle(title_prefix, fontsize=18)
+
+    # Optional: one legend for clusters (outside the grid)
+    if len(cluster_nodes_and_colors) > 0:
+        # build dummy handles
+        handles = []
+        labels = []
+        for nodes, color, rank_id in cluster_nodes_and_colors:
+            h = plt.Line2D([0], [0], marker="o", linestyle="", color=color)
+            handles.append(h)
+            labels.append(f"Rank {rank_id}")
+        fig.legend(
+            handles,
+            labels,
+            loc="upper right",
+            bbox_to_anchor=(0.98, 0.98),
+            title="Cluster ranks",
+        )
+
+    if save:
+        os.makedirs(outdir, exist_ok=True)
+        path = os.path.join(outdir, fname)
+        fig.savefig(path, bbox_inches="tight", dpi=200)
+        plt.close(fig)
+    else:
+        plt.show()
