@@ -5,6 +5,65 @@ import numpy as np
 from scipy.signal import butter, filtfilt
 from scipy.spatial.distance import cdist
 
+def make_multiregion_silence_mask_bilateral(src_xyz, K, per_region_k, enforce_bilateral=True):
+    """
+    Generate a multi-region silent mask X_act with K regions,
+    each region ~per_region_k nodes, and (optionally) enforce
+    that the overall silent set covers both hemispheres.
+    """
+    src_xyz = np.asarray(src_xyz)
+    p = src_xyz.shape[0]
+    X_act = np.zeros(p, dtype=bool)
+
+    # --- split by hemisphere using x-coordinate ---
+    x = src_xyz[:, 0]
+    eps = 1e-6
+    left_idx  = np.where(x < -eps)[0]
+    right_idx = np.where(x >  eps)[0]
+    mid_idx   = np.where(np.abs(x) <= eps)[0]  # midline (rare)
+
+    # Fallback: if we can't split hemispheres, just do old behavior
+    if len(left_idx) == 0 or len(right_idx) == 0:
+        for _ in range(K):
+            center = np.random.randint(p)
+            d = np.linalg.norm(src_xyz - src_xyz[center], axis=1)
+            region = np.argsort(d)[:per_region_k]
+            X_act[region] = True
+        return X_act
+
+    # --- decide how many regions per hemisphere ---
+    if enforce_bilateral and K >= 2:
+        K_left = K // 2
+        K_right = K - K_left
+    else:
+        # No bilateral enforcement: just sample anywhere
+        K_left = 0
+        K_right = 0
+
+    # --- left hemisphere regions ---
+    for _ in range(K_left):
+        c = np.random.choice(left_idx)
+        d = np.linalg.norm(src_xyz[left_idx] - src_xyz[c], axis=1)
+        region = left_idx[np.argsort(d)[:per_region_k]]
+        X_act[region] = True
+
+    # --- right hemisphere regions ---
+    for _ in range(K_right):
+        c = np.random.choice(right_idx)
+        d = np.linalg.norm(src_xyz[right_idx] - src_xyz[c], axis=1)
+        region = right_idx[np.argsort(d)[:per_region_k]]
+        X_act[region] = True
+
+    # --- if K > (K_left+K_right), place remaining regions anywhere ---
+    remaining = K - (K_left + K_right)
+    for _ in range(remaining):
+        c = np.random.randint(p)
+        d = np.linalg.norm(src_xyz - src_xyz[c], axis=1)
+        region = np.argsort(d)[:per_region_k]
+        X_act[region] = True
+
+    return X_act
+
 
 def butter_lowpass_filter(data, fs, cutoff=90.0, order=4):
     """
@@ -44,7 +103,16 @@ def simulate_multiregion_silence_and_eeg(
     p = src_xyz.shape[0]
     n = L.shape[0]
 
-    # Disallow midline band
+   
+
+    # ---- NEW: bilateral mask (left + right hemispheres) ----
+    X_act = make_multiregion_silence_mask_bilateral(
+    src_xyz,
+    K=K,
+    per_region_k=per_region_k,
+    enforce_bilateral=True,)
+
+    """ # Disallow midline band
     allowed = np.where(
         (src_xyz[:, 0] <= -mid_gap_mm) | (src_xyz[:, 0] >= mid_gap_mm)
     )[0]
@@ -67,6 +135,7 @@ def simulate_multiregion_silence_and_eeg(
 
     X_act = np.zeros(p, dtype=bool)
     X_act[silence_idx] = True  # True = silent
+    p = src_xyz.shape[0]"""
 
     # Source covariance (exp decay)
     gamma = 0.12
