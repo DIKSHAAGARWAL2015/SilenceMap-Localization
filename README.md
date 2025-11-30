@@ -1,5 +1,5 @@
 # SilenceMap-Localization
-# ieee_paper.pdf - Technical report for submission to IEEE
+# Silence_localization__for_Diksha.pdf - Technical report for submission to IEEE
 
 Created multiple regions of silence. The number of regions of silence can vary from 1-5.
 
