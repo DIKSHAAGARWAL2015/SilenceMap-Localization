@@ -294,3 +294,76 @@ def plot_gt_gnn_clusters_3x5(
         plt.close(fig)
     else:
         plt.show()
+
+
+def plot_ventral_clusters_2x2(src_xyz, mask_gt, mask_gnn,
+                               injection_side="left",
+                               outdir="./figs_ventral/",
+                               fname="ventral_clusters_2x2.png"):
+    """
+    Plot GT vs GNN clusters in a single 2x2 grid figure:
+    Row 0: GT, Row 1: GNN
+    Column 0: Ipsilateral, Column 1: Contralateral
+    Lighter hemisphere background so clusters are visible.
+    """
+    import os
+    import matplotlib.pyplot as plt
+    import numpy as np
+
+    os.makedirs(outdir, exist_ok=True)
+
+    # Hemisphere labels: 0 = left, 1 = right
+    hemisphere_labels = np.zeros(src_xyz.shape[0], dtype=int)
+    hemisphere_labels[src_xyz[:, 0] > 0] = 1
+
+    # Split nodes
+    left_gt = np.where(mask_gt & (hemisphere_labels == 0))[0]
+    right_gt = np.where(mask_gt & (hemisphere_labels == 1))[0]
+    left_gnn = np.where(mask_gnn & (hemisphere_labels == 0))[0]
+    right_gnn = np.where(mask_gnn & (hemisphere_labels == 1))[0]
+
+    # Determine ipsi / contra
+    if injection_side.lower() == "left":
+        ipsi_gt, contra_gt = left_gt, right_gt
+        ipsi_gnn, contra_gnn = left_gnn, right_gnn
+        ipsi_label, contra_label = "Left Hemisphere", "Right Hemisphere"
+    else:
+        ipsi_gt, contra_gt = right_gt, left_gt
+        ipsi_gnn, contra_gnn = right_gnn, left_gnn
+        ipsi_label, contra_label = "Right Hemisphere", "Left Hemisphere"
+
+    # 2x2 subplots
+    fig, axes = plt.subplots(2, 2, figsize=(12, 10), subplot_kw={'projection':'3d'})
+
+    plot_info = [
+        (ipsi_gt, axes[0,0], f"GT Ipsilateral ({ipsi_label})"),
+        (contra_gt, axes[0,1], f"GT Contralateral ({contra_label})"),
+        (ipsi_gnn, axes[1,0], f"GNN Ipsilateral ({ipsi_label})"),
+        (contra_gnn, axes[1,1], f"GNN Contralateral ({contra_label})"),
+    ]
+
+    for nodes, ax, title in plot_info:
+        ax.set_title(title, fontsize=12)
+
+        # Lighter hemisphere background
+        left_idx = np.where(hemisphere_labels == 0)[0]
+        right_idx = np.where(hemisphere_labels == 1)[0]
+        ax.scatter(src_xyz[left_idx,0], src_xyz[left_idx,1], src_xyz[left_idx,2],
+                   s=10, color='lightsteelblue', alpha=0.2)
+        ax.scatter(src_xyz[right_idx,0], src_xyz[right_idx,1], src_xyz[right_idx,2],
+                   s=10, color='lightpink', alpha=0.2)
+
+        # Highlight cluster nodes in bright orange with black edge
+        if len(nodes) > 0:
+            ax.scatter(src_xyz[nodes,0], src_xyz[nodes,1], src_xyz[nodes,2],
+                       s=80, color='orange', edgecolor='k', linewidth=0.5)
+
+        ax.set_axis_off()
+        ax.view_init(elev=15, azim=-60)
+
+    plt.tight_layout()
+    plt.savefig(os.path.join(outdir, fname), dpi=200)
+    plt.close()
+    print(f"Saved 2x2 figure to {os.path.join(outdir, fname)}")
+
+

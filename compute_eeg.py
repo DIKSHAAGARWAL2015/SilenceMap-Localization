@@ -14,7 +14,7 @@ def make_multiregion_silence_mask_bilateral(src_xyz, K, per_region_k, enforce_bi
     src_xyz = np.asarray(src_xyz)
     p = src_xyz.shape[0]
     X_act = np.zeros(p, dtype=bool)
-
+    
     # --- split by hemisphere using x-coordinate ---
     x = src_xyz[:, 0]
     eps = 1e-6
@@ -64,6 +64,95 @@ def make_multiregion_silence_mask_bilateral(src_xyz, K, per_region_k, enforce_bi
 
     return X_act
 
+def make_multiregion_silence_mask_bilateral_modified(
+    src_xyz,
+    K,
+    per_region_k,
+    ventral_nodes=None,
+    injection_side="left",
+    enforce_bilateral=False
+):
+    """
+    Generate a multi-region silent mask X_act with K regions,
+    each region ~per_region_k nodes, optionally restricted to
+    ventral cortex and/or left/right hemisphere.
+
+    Parameters
+    ----------
+    src_xyz : (p,3) array
+        Vertex coordinates
+    K : int
+        Number of silent regions
+    per_region_k : int
+        Approx nodes per region
+    ventral_nodes : array_like, optional
+        Indices of ventral cortex vertices
+    injection_side : str, "left" or "right"
+        Hemisphere to inject silence in
+    enforce_bilateral : bool
+        If True and K>=2, enforce some regions in each hemisphere
+    """
+    src_xyz = np.asarray(src_xyz)
+    p = src_xyz.shape[0]
+    X_act = np.zeros(p, dtype=bool)
+
+    # --- choose candidate nodes ---
+    if ventral_nodes is not None:
+        candidates = ventral_nodes
+    else:
+        candidates = np.arange(p)
+
+    # --- split by hemisphere ---
+    x = src_xyz[:, 0]
+    eps = 1e-6
+    left_idx  = candidates[x[candidates] < -eps]
+    right_idx = candidates[x[candidates] >  eps]
+
+    # --- fallback: if hemisphere split fails ---
+    if len(left_idx) == 0 or len(right_idx) == 0:
+        for _ in range(K):
+            c = np.random.choice(candidates)
+            d = np.linalg.norm(src_xyz[candidates] - src_xyz[c], axis=1)
+            region = candidates[np.argsort(d)[:per_region_k]]
+            X_act[region] = True
+        return X_act
+
+    # --- decide regions per hemisphere ---
+    if enforce_bilateral and K >= 2:
+        K_left = K // 2
+        K_right = K - K_left
+    else:
+        # inject only in one hemisphere
+        if injection_side.lower() == "left":
+            K_left = K
+            K_right = 0
+        else:
+            K_left = 0
+            K_right = K
+
+    # --- left hemisphere regions ---
+    for _ in range(K_left):
+        c = np.random.choice(left_idx)
+        d = np.linalg.norm(src_xyz[left_idx] - src_xyz[c], axis=1)
+        region = left_idx[np.argsort(d)[:per_region_k]]
+        X_act[region] = True
+
+    # --- right hemisphere regions ---
+    for _ in range(K_right):
+        c = np.random.choice(right_idx)
+        d = np.linalg.norm(src_xyz[right_idx] - src_xyz[c], axis=1)
+        region = right_idx[np.argsort(d)[:per_region_k]]
+        X_act[region] = True
+
+    # --- remaining regions anywhere (if K > K_left+K_right) ---
+    remaining = K - (K_left + K_right)
+    for _ in range(remaining):
+        c = np.random.choice(candidates)
+        d = np.linalg.norm(src_xyz[candidates] - src_xyz[c], axis=1)
+        region = candidates[np.argsort(d)[:per_region_k]]
+        X_act[region] = True
+
+    return X_act
 
 def butter_lowpass_filter(data, fs, cutoff=90.0, order=4):
     """
@@ -82,7 +171,7 @@ def simulate_multiregion_silence_and_eeg(
     Fs=512,
     noise_pow=5e-8,
     mid_gap_mm=5.0,
-    rng=None,
+    rng=None, ventral_nodes=None
 ):
     """
     Simulate:
@@ -106,11 +195,19 @@ def simulate_multiregion_silence_and_eeg(
    
 
     # ---- NEW: bilateral mask (left + right hemispheres) ----
-    X_act = make_multiregion_silence_mask_bilateral(
+    """X_act = make_multiregion_silence_mask_bilateral(
     src_xyz,
     K=K,
     per_region_k=per_region_k,
-    enforce_bilateral=True,)
+    enforce_bilateral=True)"""
+    X_act = make_multiregion_silence_mask_bilateral_modified(
+    src_xyz,
+    K=5,
+    per_region_k=10,
+    ventral_nodes=ventral_nodes,
+    injection_side="left",
+    enforce_bilateral=False  # inject only in left
+)
 
     """ # Disallow midline band
     allowed = np.where(

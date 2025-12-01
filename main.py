@@ -18,7 +18,7 @@ from plotting import (
     show_cortex_mask,
     plot_ranked_clusters_numbered_with_mask,
     plot_beta_g_curves,
-    rotate_cortex_360,plot_gt_gnn_clusters_3x5
+    rotate_cortex_360,plot_gt_gnn_clusters_3x5,plot_ventral_clusters_2x2
 )
 from clusters_ranking import extract_clusters_from_mask_sparse, rank_clusters
 from eval_silence_localization import evaluate_silence_localization_multi_region
@@ -160,6 +160,13 @@ def select_seeds_from_beta(beta_arr, q_seed=0.03):
 
     return seed_silent_mask, seed_active_mask
 
+def get_ventral_nodes(src_xyz, z_percentile=25):
+    """
+    Return indices of ventral cortex vertices based on z-coordinate (bottom z-percentile)
+    """
+    z_threshold = np.percentile(src_xyz[:, 2], z_percentile)
+    ventral_nodes = np.where(src_xyz[:, 2] <= z_threshold)[0]
+    return ventral_nodes
 
 # ---------- Main pipeline ----------
 
@@ -184,7 +191,7 @@ def run():
             args.use_mat = False
 
     p = src_xyz.shape[0]
-
+    ventral_nodes = get_ventral_nodes(src_xyz, z_percentile=25)
     # --- Simulate silence + EEG ---
     X_act, eeg, snr, Cs_full = simulate_multiregion_silence_and_eeg(
         L=L,
@@ -192,7 +199,7 @@ def run():
         K=args.K,
         per_region_k=args.per_region_k,
         t=args.t,
-        Fs=args.Fs,
+        Fs=args.Fs, ventral_nodes=ventral_nodes
     )
     print(f"Avg SNR ≈ {snr:.2f} dB")
     #########################################
@@ -332,7 +339,6 @@ def run():
 
     save = args.save_figs
     out = args.fig_dir
-
     show_cortex_mask(
         src_xyz,
         X_act,
@@ -394,6 +400,15 @@ def run():
     outdir=args.fig_dir,
     fname="gt_gnn_clusters_3x5.png",
 )
+    plot_ventral_clusters_2x2(
+    src_xyz=src_xyz,
+    mask_gt=X_act,
+    mask_gnn=mask_gnn,
+    injection_side="left",
+    outdir="./figs_ventral/",
+    fname="ventral_clusters_2x2.png"
+)
+
 
 
 def main():
