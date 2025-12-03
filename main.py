@@ -7,6 +7,7 @@ import numpy as np
 import torch
 from scipy.sparse import identity
 from scipy.sparse.linalg import spsolve
+from tqdm import trange
 
 from dataloader import load_leadfield_any
 from compute_eeg import simulate_multiregion_silence_and_eeg
@@ -169,7 +170,9 @@ def get_ventral_nodes(src_xyz, z_percentile=25):
     return ventral_nodes
 
 # ---------- Main pipeline ----------
-
+    # ---- Setup device ----
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print("Using device:", device)
 def run():
     args = parse_args()
     print("Device:", device)
@@ -252,6 +255,47 @@ def run():
     beta_t = torch.tensor(beta, dtype=torch.float32, device=device).view(-1, 1)
     deg_feat = torch.tensor(deg, dtype=torch.float32, device=device).view(-1, 1)
 
+    # ---- Training loop ----
+    for it in trange(args.gnn_steps, desc="GNN Training"):
+        opt.zero_grad()
+    
+        # Forward pass
+        g = model(beta_t, deg_feat)
+    
+        # Loss terms
+        data_term = ((g - beta_t) ** 2).mean()
+        smooth_term = lap_energy(g, Lcoo) / p
+        loss_silent = torch.mean(g[seed_silent_mask] ** 2)
+        loss_active = torch.mean((g[seed_active_mask] - 1.0) ** 2)
+        loss_seed = loss_silent + loss_active
+    
+        # Total loss
+        loss = data_term + args.gnn_lambda * smooth_term + args.gnn_gamma * loss_seed
+    
+        # Backward pass and optimization
+        loss.backward()
+        opt.step()
+    
+    # Optional: print every N steps
+        if (it + 1) % 50 == 0:
+           print(
+            f"[{it+1:04d}/{args.gnn_steps}] "
+            f"loss={loss.item():.5f} "
+            f"data={data_term.item():.5f} "
+            f"smooth={smooth_term.item():.5f} "
+            f"seed={loss_seed.item():.5f}"
+           )
+
+# ---- Post-processing ----
+    with torch.no_grad():
+         g_raw = model(beta_t, deg_feat).squeeze(1).cpu().numpy()
+         g_hat = (g_raw - g_raw.min()) / (g_raw.max() - g_raw.min() + 1e-12)
+    # Move model and tensors to device
+    """model = model.to(device)
+    beta_t = beta_t.to(device)
+    deg_feat = deg_feat.to(device)
+    seed_silent_mask = seed_silent_mask.to(device)
+    seed_active_mask = seed_active_mask.to(device)
     for it in range(args.gnn_steps):
         opt.zero_grad()
         g = model(beta_t, deg_feat)
@@ -277,7 +321,7 @@ def run():
 
     with torch.no_grad():
         g_raw = model(beta_t, deg_feat).squeeze(1).cpu().numpy()
-        g_hat = (g_raw - g_raw.min()) / (g_raw.max() - g_raw.min() + 1e-12)
+        g_hat = (g_raw - g_raw.min()) / (g_raw.max() - g_raw.min() + 1e-12)"""
 
     g_hat_arr = np.asarray(g_hat)
     idx_gnn = np.argpartition(g_hat_arr, k_silent - 1)[:k_silent]
