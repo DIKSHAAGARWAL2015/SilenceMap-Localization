@@ -1,0 +1,46 @@
+!python /content/sample_data/gnn_vs_silencemap.py \
+  --silencemap_path /content/sample_data/SilenceMap_final.mat \
+  --save_figs \
+  --fig_dir /content/sample_data/figs/
+
+
+Device: cpu
+Loading SilenceMap file: /content/sample_data/SilenceMap_final.mat
+beta length: 1662
+coords shape: (1662, 3)
+|GT silence| (from MATLAB): 50
+|det silence| (MATLAB SilenceMap): 2
+mean(beta GT silent) : 0.6312295794487
+mean(beta GT active) : 0.8614711165428162
+beta min/max after norm: 0.0 1.0
+Building k-NN graph...
+k_silent (from GT) = 50
+
+Laplacian baseline: P=0.540 R=0.540 F1=0.540
+Laplacian cluster metrics:
+  Jaccard     : 0.370
+  ΔCOM (mm)   : 11.151
+  size_gt      : 50
+  size_pred    : 50
+  size_rel_err : 0.000
+
+Training GNN...
+[0200] loss=0.21228 data=0.03225 smooth=0.01063 seed=0.25376
+[0400] loss=0.19289 data=0.03104 smooth=0.01119 seed=0.21179
+[0600] loss=0.18163 data=0.03334 smooth=0.01113 seed=0.18531
+[0800] loss=0.17774 data=0.02622 smooth=0.01221 seed=0.18088
+[1000] loss=0.17721 data=0.02861 smooth=0.01220 seed=0.17518
+[1200] loss=0.17592 data=0.02921 smooth=0.01208 seed=0.17262
+[1400] loss=0.17515 data=0.02821 smooth=0.01214 seed=0.17246
+
+GNN: P=0.740 R=0.740 F1=0.740
+GNN cluster metrics:
+  Jaccard      : 0.587
+  ΔCOM (mm)    : 1.612
+  size_gt      : 50
+  size_pred    : 50
+  size_rel_err : 0.000
+[saved figure → /content/sample_data/figs/1_gt.png]
+[saved figure → /content/sample_data/figs/2_laplacian.png]
+[saved figure → /content/sample_data/figs/3_gnn.png]
+[saved figure → /content/sample_data/figs/4_curves.png]
