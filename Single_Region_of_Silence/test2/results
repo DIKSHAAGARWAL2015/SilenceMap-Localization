@@ -44,3 +44,20 @@ GNN cluster metrics:
 [saved figure → /content/sample_data/figs/2_laplacian.png]
 [saved figure → /content/sample_data/figs/3_gnn.png]
 [saved figure → /content/sample_data/figs/4_curves.png]
+
+
+
+
+#################MATLAB results##############
+ans =
+
+   150
+
+
+ans =
+
+   2.2197e-07
+
+Delta COM (mm) = 78.13
+Jaccard Index = 0.000
+Size Error = 48 sources
