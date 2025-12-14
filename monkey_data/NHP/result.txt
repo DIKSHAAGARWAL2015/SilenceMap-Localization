@@ -1,0 +1,44 @@
+Device: cpu
+Loading .mat leadfield/headmodel...
+ERROR:root:ERROR: not a MATLAB datatype: <HDF5 dataset "L": shape (128, 3004), type "<f4">, (float32)
+ERROR:root:ERROR: not a MATLAB datatype: <HDF5 dataset "sensor_locs": shape (128, 3), type "<f4">, (float32)
+ERROR:root:ERROR: not a MATLAB datatype: <HDF5 dataset "src_xyz": shape (3004, 3), type "<f4">, (float32)
+Loaded leadfield: (128, 3004) vertices: (3004, 3)
+Avg SNR ≈ 10.00 dB (target=10 dB)
+[-0.04012999 -0.01967404  0.00861103 ...  0.24074838  0.05484879
+  0.64439959]
+(3004,)
+[auto] q_silent set to 1.60% for |S|=48/3004
+[0200] loss=0.59666 cls=0.37122 smooth=0.04509
+[0400] loss=0.49867 cls=0.24104 smooth=0.05153
+[0600] loss=0.42152 cls=0.20326 smooth=0.04365
+[0800] loss=0.40106 cls=0.19467 smooth=0.04128
+[1000] loss=0.37263 cls=0.16723 smooth=0.04108
+[1200] loss=0.36147 cls=0.15203 smooth=0.04189
+[1400] loss=0.34993 cls=0.14653 smooth=0.04068
+[1600] loss=0.36459 cls=0.16196 smooth=0.04053
+[1800] loss=0.33714 cls=0.13639 smooth=0.04015
+[2000] loss=0.36260 cls=0.15744 smooth=0.04103
+GT positives: 48
+th=0.50 pred=124  P=0.387 R=1.000 F1=0.558
+th=0.70 pred=70  P=0.686 R=1.000 F1=0.814
+th=0.80 pred=49  P=0.857 R=0.875 F1=0.866
+th=0.90 pred=30  P=1.000 R=0.625 F1=0.769
+th=0.95 pred=19  P=1.000 R=0.396 F1=0.567
+th=0.98 pred=10  P=1.000 R=0.208 F1=0.345
+[debug] best_th=0.80 best_F1=0.866
+
+==== GNN(best_th) Component Report ====
+Vertex-set Jaccard (IoU): 0.764
+#Components: GT=4  Pred=4
+Matched comp IoU: mean=0.768  median=0.805
+Size error abs:   mean=2.25  median=2.00
+Size error rel:   mean=0.187  median=0.167
+
+✅ EVERYTHING SAVED SAFELY
+📁 Folder: /content/sample_data/safe_save_run1
+➡️ You can now move to MONKEY (NHP) data using these weights.
+[saved figure → /content/sample_data/figs/1_gt.png]
+[saved figure → /content/sample_data/figs/3_gnn.png]
+[saved figure → /content/sample_data/figs/1_gt_overlay.png]
+[saved figure → /content/sample_data/figs/3_gnn_overlay.png]
