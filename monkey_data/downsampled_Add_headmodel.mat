@@ -1,0 +1,38 @@
+% ---------- paths ----------
+cortex_in   = '/MATLAB Drive/cortex_downsampled.mat';                  % has DownsampledCortex
+lead_in     = 'OT_leadfield_symmetric_3002-128.mat';    % has L, sensor_locs (and maybe src_xyz)
+out_file    = 'OT_headmodel_symmetric_3002-128.mat';    % want Cortex + headmodel
+
+% ---------- load ----------
+A = load(cortex_in);        % should contain DownsampledCortex
+B = load(lead_in);          % should contain L, sensor_locs (and maybe src_xyz)
+
+% ---------- build Cortex struct ----------
+Down = A.DownsampledCortex;
+
+Cortex = struct();
+Cortex.vertices = Down.V;   % (P,3)
+Cortex.faces    = Down.F;   % (T,3) MATLAB is 1-based already
+
+% ---------- build headmodel struct ----------
+headmodel = struct();
+headmodel.L = B.L;                          % (N,P)
+headmodel.sensor_locs = B.sensor_locs;      % (N,3)
+
+% Optional: if your leadfield file includes src_xyz, store it too
+if isfield(B, 'src_xyz')
+    headmodel.src_xyz = B.src_xyz;          % (P,3)
+end
+
+% ---------- sanity checks ----------
+fprintf('Cortex.vertices: %s\n', mat2str(size(Cortex.vertices)));
+fprintf('Cortex.faces:    %s\n', mat2str(size(Cortex.faces)));
+fprintf('headmodel.L:     %s\n', mat2str(size(headmodel.L)));
+fprintf('sensor_locs:     %s\n', mat2str(size(headmodel.sensor_locs)));
+
+% Very important: columns of L must match vertices count
+assert(size(headmodel.L,2) == size(Cortex.vertices,1), 'Mismatch: L columns != #vertices');
+
+% ---------- save (use -v7.3 if file becomes large) ----------
+save(out_file, 'Cortex', 'headmodel', '-v7.3');
+fprintf('Saved: %s\n', out_file);
